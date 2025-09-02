@@ -1,0 +1,61 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# --- Virtual envs ---
+.venv/
+venv/
+env/
+.python-version
+.envrc
+
+# --- Packaging / build artifacts ---
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# --- Caches ---
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.cache/
+
+# --- Coverage ---
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# --- Logs & runtime data ---
+logs/
+*.log
+*.pid
+tmp/
+data/
+
+# --- Local databases ---
+*.sqlite
+*.sqlite3
+*.db
+
+# --- Environment files (keep examples) ---
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+!.env.local.example
+
+# --- Docker / Compose ---
+docker-compose.override.yml
+
+# --- Editors / OS junk ---
+.DS_Store
+.idea/
+.vscode/
+Thumbs.db

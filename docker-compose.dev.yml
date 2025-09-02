@@ -1,0 +1,60 @@
+# Folosește împreună cu fișierul principal:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml --profile dev up --build
+#
+# Scop:
+# - Montează codul local în container (hot-reload)
+# - Expune un port de dev (APP_PORT_DEV) separat de portul de prod
+# - Log level detaliat și watcher stabil pe macOS/Windows
+# - Opțional: pgweb pentru interfață SQL în browser
+
+services:
+  app:
+    profiles: ["dev"]
+    # Folosește aceleași build/image ca în fișierul principal
+    environment:
+      LOG_LEVEL: debug
+      APP_RELOAD: "1"                  # entrypoint va porni uvicorn --reload
+      WATCHFILES_FORCE_POLLING: "true" # fix pt. watcher în Docker Desktop
+      UVICORN_HOST: "0.0.0.0"
+      UVICORN_PORT: "8000"             # port intern în mod dev
+    # Poți seta aici temporar credențiale de test dacă nu vrei să atingi .env
+    # EMAG_MAIN_USER: ${EMAG_MAIN_USER}
+    # EMAG_MAIN_PASS: ${EMAG_MAIN_PASS}
+    ports:
+      - "${APP_PORT_DEV:-8000}:8000"
+    volumes:
+      # Montează tot proiectul peste /app ca să vezi imediat modificările
+      - ./:/app:cached
+      # (opțional) accesează testele din container în read-only
+      - ./tests:/app/tests:ro
+    # Creează un cache pentru pip (nu e obligatoriu)
+    # - pip-cache:/root/.cache/pip
+    read_only: false                    # necesar când montăm codul
+    tmpfs: []                           # dezactivează tmpfs din prod
+    security_opt: []                    # fără restricții suplimentare în dev
+    cap_drop: []                        # păstrează capabilitățile default
+    depends_on:
+      db:
+        condition: service_healthy
+        required: true
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # acces la servicii de pe host
+    env_file:
+      - .env   # încarcă variabilele din .env pe lângă cele din 'environment'
+
+  # Interfață web opțională pentru Postgres
+  pgweb:
+    profiles: ["dev"]
+    image: sosedoff/pgweb:0.14.3
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # Conexiune directă la serviciul 'db' din rețeaua compose
+      DATABASE_URL: postgres://appuser:appsecret@db:5432/appdb?sslmode=disable
+    ports:
+      - "8081:8081"
+    command: ["--listen=0.0.0.0", "--listen-port=8081"]
+
+# volumes:
+#   pip-cache:

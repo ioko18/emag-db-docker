@@ -1,0 +1,81 @@
+# ========== VCS ==========
+.git/
+.gitignore
+.gitattributes
+
+# ========== Python ==========
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+build/
+dist/
+*.whl
+
+# ========== Virtualenvs ==========
+.venv/
+venv/
+.envrc
+
+# ========== Test & Lint caches ==========
+.pytest_cache/
+.coverage*
+coverage.xml
+htmlcov/
+.tox/
+.nox/
+.pyre/
+.mypy_cache/
+.ruff_cache/
+.bandit
+
+# ========== Editors / OS ==========
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ========== Logs & temp ==========
+logs/
+*.log
+tmp/
+temp/
+.cache/
+
+# ========== Local data / DB artefacts ==========
+*.db
+*.sqlite
+*.sqlite3
+data/
+storage/
+uploads/
+
+# ========== Node/Frontend (dacă apar) ==========
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# ========== Docker/Compose & secrete ==========
+docker-compose.override.yml
+.env
+.env.*
+.secrets
+*.secret
+
+# ========== Keep: artefacte necesare build-ului ==========
+!app/
+!migrations/
+!alembic.ini
+!requirements.txt
+!requirements-dev.txt
+!docker/
+!Dockerfile
+!docker-compose.yml
+!README*

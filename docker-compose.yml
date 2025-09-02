@@ -1,0 +1,334 @@
+name: emagdb
+
+# --- reusable anchors --------------------------------------------------------
+x-logging: &default-logging
+  driver: json-file
+  options: { max-size: "10m", max-file: "3" }
+
+x-app-env: &app-env
+  TZ: Europe/Bucharest
+  PYTHONUNBUFFERED: "1"
+  PYTHONDONTWRITEBYTECODE: "1"
+  PYTHONFAULTHANDLER: "1"
+  LOG_LEVEL: info
+  HOME: /tmp
+
+  # App meta / docs & OpenAPI (match app/main.py)
+  APP_TITLE: emag-db-api
+  APP_VERSION: ${APP_VERSION:-0.1.0}
+  ROOT_PATH: ${ROOT_PATH:-}
+  DISABLE_DOCS: ${DISABLE_DOCS:-0}
+  OPENAPI_URL: ${OPENAPI_URL:-/openapi.json}
+  DOCS_URL: ${DOCS_URL:-/docs}
+  REDOC_URL: ${REDOC_URL:-/redoc}
+  OPENAPI_ADD_ROOT_SERVER: ${OPENAPI_ADD_ROOT_SERVER:-1}
+  CORS_ORIGINS: ${CORS_ORIGINS:-}
+  TRUSTED_HOSTS: ${TRUSTED_HOSTS:-}
+  BUILD_SHA: ${BUILD_SHA:-}
+  GIT_SHA: ${GIT_SHA:-}
+
+  # Observability guard (optional)
+  OBS_KEY: ${OBS_KEY:-}
+  OBS_PROTECT_PREFIXES: ${OBS_PROTECT_PREFIXES:-/observability}
+
+  # --- Schema & Alembic ---
+  DB_SCHEMA: ${DB_SCHEMA:-app}
+  DB_CREATE_SCHEMA_IF_MISSING: "1"
+  ALEMBIC_CONFIG: /app/alembic.ini
+  ALEMBIC_USE_SCHEMA_TRANSLATE: "1"
+  ALEMBIC_ONLY_DEFAULT_SCHEMA: "0"
+  ALEMBIC_MAP_PUBLIC_TO_DEFAULT_SCHEMA: "0"
+  ALEMBIC_VERSION_TABLE: alembic_version
+  ALEMBIC_SET_LOCAL_SEARCH_PATH: "1"
+
+  # ✔ diagnostic/fail-fast (suportate în env.py)
+  ALEMBIC_VERIFY_WITH_NEW_CONNECTION: "1"
+  ALEMBIC_ASSERT_TABLES: "products,categories,product_categories"
+  ALEMBIC_FAIL_IF_PUBLIC_VERSION_TABLE: "1"
+  ALEMBIC_SQL_ECHO: ${ALEMBIC_SQL_ECHO:-0}
+
+  # Extensii Postgres (opțional, folosite de initdb)
+  DB_EXTENSIONS: ${DB_EXTENSIONS:-}
+  DB_EXTENSIONS_STRICT: ${DB_EXTENSIONS_STRICT:-0}
+
+  # --- Pool ---
+  DB_POOL_SIZE: ${DB_POOL_SIZE:-5}
+  DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-10}
+
+  # --- boot ---
+  RUN_MIGRATIONS_ON_START: "1"
+  WAIT_FOR_DB: "auto"
+  WAIT_RETRIES: "60"
+  WAIT_SLEEP_SECS: "1"
+
+  # --- Uvicorn ---
+  UVICORN_HOST: 0.0.0.0
+  UVICORN_PORT: "8001"
+  UVICORN_WORKERS: ${UVICORN_WORKERS:-1}
+
+  # 🔒 Forțează search_path pentru TOATE conexiunile libpq/psycopg (incl. Alembic)
+  PGOPTIONS: "-c search_path=${DB_SCHEMA:-app},public"
+
+  # (opțional) Nume de aplicație în PG (vizibil în pg_stat_activity)
+  DB_APPLICATION_NAME: "emagdb-api"
+
+x-app-healthcheck: &app-healthcheck
+  test:
+    [
+      "CMD-SHELL",
+      "python - <<'PY'\nimport sys,urllib.request\nu='http://127.0.0.1:8001/health/ready'\ntry:\n  with urllib.request.urlopen(u, timeout=2) as r:\n    sys.exit(0 if r.status==200 else 1)\nexcept Exception:\n  sys.exit(1)\nPY",
+    ]
+  interval: 10s
+  timeout: 3s
+  retries: 12
+  start_period: 20s
+
+# Securitate comună pentru containerele app-like
+x-secure-app: &secure-app
+  init: true
+  security_opt: ["no-new-privileges:true"]
+  cap_drop: [ALL]
+  read_only: true
+  tmpfs: ["/tmp:rw,noexec,nosuid,size=64m"]
+  logging: *default-logging
+  networks: [backend]
+  ulimits:
+    nofile: { soft: 65536, hard: 65536 }
+    nproc: 4096
+
+# Env Postgres
+x-pg-env: &pg-env
+  TZ: Europe/Bucharest
+  POSTGRES_USER: ${POSTGRES_USER:-appuser}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-appsecret}
+  POSTGRES_DB: ${POSTGRES_DB:-appdb}
+  POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C.UTF-8"
+
+# Healthcheck PG comun
+x-pg-health: &pg-health
+  test: ["CMD-SHELL", 'pg_isready -q -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -h localhost']
+  interval: 5s
+  timeout: 3s
+  retries: 15
+  start_period: 15s
+
+# Centralizăm comanda Postgres (search_path + pg_stat_statements preload)
+x-pg-command: &pg-command
+  - "postgres"
+  - "-c"
+  - "search_path=${DB_SCHEMA:-app},public"
+  - "-c"
+  - "shared_preload_libraries=pg_stat_statements"
+  - "-c"
+  - "pg_stat_statements.track=all"
+  - "-c"
+  - "pg_stat_statements.track_utility=off"
+  - "-c"
+  - "pg_stat_statements.max=5000"
+  - "-c"
+  - "pg_stat_statements.save=on"
+  - "-c"
+  - "track_activity_query_size=4096"
+
+# Build & image anchors
+x-app-build: &app-build
+  context: .
+  dockerfile: Dockerfile
+  target: runtime
+
+x-app-image: &app-image ${APP_IMAGE:-emagdb-app:latest}
+
+# Refolosim URL-urile DB (psycopg3) — includem application_name + search_path
+x-db-url: &db-url "postgresql+psycopg://${POSTGRES_USER:-appuser}:${POSTGRES_PASSWORD:-appsecret}@db:5432/${POSTGRES_DB:-appdb}?application_name=${DB_APPLICATION_NAME:-emagdb-api}&options=-csearch_path%3D${DB_SCHEMA:-app}%2Cpublic"
+x-db-url-test: &db-url-test "postgresql+psycopg://${POSTGRES_USER:-appuser}:${POSTGRES_PASSWORD:-appsecret}@db_test:5432/${POSTGRES_DB_TEST:-appdb_test}?application_name=${DB_APPLICATION_NAME:-emagdb-api}-test&options=-csearch_path%3D${DB_SCHEMA:-app}%2Cpublic"
+
+# --- services ---------------------------------------------------------------
+services:
+  db:
+    image: postgres:16
+    pull_policy: missing
+    container_name: emagdb_pg
+    command: *pg-command
+    # securizat: expune doar local
+    ports: ["127.0.0.1:${DB_PORT:-5434}:5432"]
+    environment: *pg-env
+    healthcheck: *pg-health
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/initdb:/docker-entrypoint-initdb.d:ro
+    restart: unless-stopped
+    stop_grace_period: 30s
+    init: true
+    logging: *default-logging
+    networks: [backend]
+    ulimits:
+      nofile: { soft: 65536, hard: 65536 }
+      nproc: 4096
+
+  app:
+    build: *app-build
+    image: *app-image
+    pull_policy: missing
+    container_name: emagdb_app
+    depends_on:
+      db: { condition: service_healthy }
+    env_file: [.env]
+    environment:
+      <<: *app-env
+      DATABASE_URL: *db-url   # ✅ unificat pe psycopg3
+      ALEMBIC_VERSION_TABLE_SCHEMA: ${DB_SCHEMA:-app}
+    user: "10001:10001"
+    # Bind doar pe localhost; APP_PORT e configurabil (default 8010)
+    ports: ["127.0.0.1:${APP_PORT:-8010}:8001"]
+    healthcheck: *app-healthcheck
+    command: ["/app/docker/app-entrypoint.sh"]
+    restart: unless-stopped
+    stop_grace_period: 15s
+    stop_signal: SIGTERM
+    <<: *secure-app
+
+  # --- Worker de sync (pasul 3) ----------------------------------------------
+  worker:
+    build: *app-build
+    image: *app-image
+    pull_policy: missing
+    container_name: emagdb_worker
+    depends_on:
+      db: { condition: service_healthy }
+    env_file: [.env]
+    environment:
+      <<: *app-env
+      DATABASE_URL: *db-url
+    command: >
+      bash -lc "python -m app.services.sync_emag_offers --interval 300"
+    restart: unless-stopped
+    stop_grace_period: 15s
+    <<: *secure-app
+
+  # --- DEV ONLY --------------------------------------------------------------
+  app-dev:
+    extends: { service: app }
+    profiles: ["dev"]
+    container_name: emagdb_app_dev
+    environment:
+      <<: *app-env
+      LOG_LEVEL: debug
+      APP_RELOAD: "1"
+      WATCHFILES_FORCE_POLLING: "true"
+      ALEMBIC_SQL_ECHO: "1"
+      DATABASE_URL: *db-url
+    volumes:
+      - ./:/app
+      - ./tests:/app/tests:ro
+    ports: ["${APP_PORT_DEV:-8002}:8001"]
+    read_only: false
+    extra_hosts: ["host.docker.internal:host-gateway"]
+
+  # --- PgBouncer (opțional) --------------------------------------------------
+  pgbouncer:
+    profiles: ["pool"]
+    image: edoburu/pgbouncer:1.22.1
+    pull_policy: missing
+    depends_on:
+      db: { condition: service_healthy }
+    environment:
+      DB_USER: ${POSTGRES_USER:-appuser}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-appsecret}
+      DB_HOST: db
+      DB_PORT: 5432
+      AUTH_TYPE: md5
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 200
+      DEFAULT_POOL_SIZE: 20
+      RESERVE_POOL_SIZE: 5
+      RESERVE_POOL_TIMEOUT: 5
+      SERVER_RESET_QUERY: "DISCARD ALL"
+      LOG_CONNECTIONS: 0
+      LOG_DISCONNECTIONS: 0
+    ports:
+      - "127.0.0.1:${PGBOUNCER_PORT:-6432}:6432"
+    networks: [backend]
+    restart: unless-stopped
+    logging: *default-logging
+
+  # --- TEST DB izolată -------------------------------------------------------
+  db_test:
+    profiles: ["test"]
+    image: postgres:16
+    pull_policy: missing
+    container_name: emagdb_pg_test
+    command: *pg-command
+    environment:
+      <<: *pg-env
+      POSTGRES_DB: ${POSTGRES_DB_TEST:-appdb_test}
+    healthcheck: *pg-health
+    tmpfs: ["/var/lib/postgresql/data:rw,size=1024m"]
+    volumes:
+      - ./docker/initdb-test:/docker-entrypoint-initdb.d:ro
+    restart: "no"
+    init: true
+    logging: *default-logging
+    networks: [backend]
+    ulimits:
+      nofile: { soft: 65536, hard: 65536 }
+      nproc: 4096
+
+  # --- API pentru test -------------------------------------------------------
+  app-test:
+    profiles: ["test"]
+    build: *app-build
+    image: *app-image
+    pull_policy: missing
+    depends_on:
+      db_test: { condition: service_healthy }
+    environment:
+      <<: *app-env
+      DATABASE_URL: *db-url-test
+      LOG_LEVEL: warning
+      ALEMBIC_VERSION_TABLE_SCHEMA: ${DB_SCHEMA:-app}
+      ALEMBIC_TRANSACTION_PER_MIGRATION: "1"
+      ALEMBIC_SQL_ECHO: "1"
+    user: "10001:10001"
+    healthcheck: *app-healthcheck
+    command: ["/app/docker/app-entrypoint.sh"]
+    restart: "no"
+    <<: *secure-app
+
+  # --- Runner de teste -------------------------------------------------------
+  test:
+    profiles: ["test"]
+    image: *app-image
+    pull_policy: missing
+    depends_on:
+      app-test: { condition: service_healthy }
+    environment:
+      <<: *app-env
+      DATABASE_URL: *db-url-test
+      BASE_URL: http://app-test:8001
+      PYTEST_ADDOPTS: "-q -o cache_dir=/tmp/.pytest_cache"
+      PYTHONUNBUFFERED: "1"
+    volumes: ["./tests:/app/tests:ro"]
+    command: ["pytest"]
+    restart: "no"
+    <<: *secure-app
+
+  # --- optional: pgweb -------------------------------------------------------
+  pgweb:
+    profiles: ["dev"]
+    image: sosedoff/pgweb:0.15.0
+    pull_policy: missing
+    depends_on: { db: { condition: service_healthy } }
+    environment:
+      DATABASE_URL: "postgres://${POSTGRES_USER:-appuser}:${POSTGRES_PASSWORD:-appsecret}@db:5432/${POSTGRES_DB:-appdb}?sslmode=disable"
+    ports: ["${PGWEB_PORT:-8081}:8081"]
+    restart: unless-stopped
+    logging: *default-logging
+    networks: [backend]
+
+# --- storage ----------------------------------------------------------------
+volumes:
+  pgdata:
+
+networks:
+  backend:
+    name: emagdb_backend
