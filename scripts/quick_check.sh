@@ -1,4 +1,3 @@
-cat > scripts/quick_check.sh <<'BASH'
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -33,5 +32,3 @@ echo "[QC] SQL + API smoke..."
 scripts/smoke.sh
 
 echo "[QC] OK — everything looks good ✅"
-BASH
-chmod +x scripts/quick_check.sh
