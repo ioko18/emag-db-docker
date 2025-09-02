@@ -13,14 +13,11 @@ SET lock_timeout = '2s';
 SET search_path TO app, public;
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- 0) Info de context: versiuni, search_path, extensii, alembic_version
+-- 0) Context: versiuni, search_path, extensii, alembic_version
 -- ─────────────────────────────────────────────────────────────────────────────
 SELECT now() AT TIME ZONE 'UTC' AS utc_now;
 
--- search_path efectiv
 SHOW search_path;
-
--- versiune server
 SHOW server_version;
 
 -- extensii critice și schema lor
@@ -31,8 +28,8 @@ WHERE e.extname IN ('pg_stat_statements','pg_trgm')
 ORDER BY e.extname;
 
 -- alembic_version: trebuie să fie în schema app și NU în public
-SELECT to_regclass('app.alembic_version')       IS NOT NULL AS app_version_table_present,
-       to_regclass('public.alembic_version')    IS NULL   AS public_version_table_absent;
+SELECT to_regclass('app.alembic_version')    IS NOT NULL AS app_version_table_present,
+       to_regclass('public.alembic_version') IS NULL     AS public_version_table_absent;
 
 -- info conexă
 SELECT current_database() AS db, current_schema;
@@ -111,7 +108,7 @@ BEGIN
 END$$;
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- 3) Verificări audit & trigger (Etapa 1) – existență coloane și trigger
+-- 3) Verificări audit & trigger – existență coloane și trigger
 -- ─────────────────────────────────────────────────────────────────────────────
 -- coloane audit
 SELECT table_name, column_name, data_type
@@ -133,7 +130,7 @@ WHERE n.nspname='app' AND tgname IN (
 )
 ORDER BY relname;
 
--- toate rândurile au creat/actualizat populate?
+-- toate rândurile au created_at/updated_at populate?
 SELECT 'products' AS tbl,
        SUM((created_at IS NULL)::int) AS created_at_nulls,
        SUM((updated_at IS NULL)::int) AS updated_at_nulls

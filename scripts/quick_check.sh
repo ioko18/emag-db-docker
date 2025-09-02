@@ -8,8 +8,15 @@ cd "$ROOT"
 
 die() { echo "❌ $*" >&2; exit 1; }
 
-# La orice eroare, arată ultimii ~200 de loguri din app și db
-trap 'echo "[QC] Last logs (tail) ↓"; docker compose logs --no-color --tail=200 app db || true' ERR
+# La orice eroare: arată starea containerelor și ultimele loguri din app & db
+trap '
+  code=$?
+  echo
+  echo "[QC] Last status & logs (tail) ↓"
+  docker compose ps || true
+  docker compose logs --no-color --tail=200 db app || true
+  exit $code
+' ERR
 
 echo "[QC] Build app image..."
 docker compose build app
@@ -29,9 +36,10 @@ for i in {1..60}; do
 done
 status="$(docker inspect -f '{{.State.Health.Status}}' "$DB_CID" 2>/dev/null || echo unknown)"
 if [[ "$status" != "healthy" ]]; then
+  echo "[QC] DB status: $status"
   # fallback de diagnostic: pg_isready din container
   docker compose exec -T db pg_isready -h localhost -p 5432 || true
-  die "DB did not become healthy in time (status: $status)"
+  die "DB did not become healthy in time"
 fi
 
 echo "[QC] Run migrations (alembic upgrade head)..."
