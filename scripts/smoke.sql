@@ -1,10 +1,18 @@
 -- scripts/smoke.sql
 -- Smoke test idempotent pentru schema "app".
--- Rulabil de oricâte ori; pregătit pentru rulare în CI.
+-- Rulabil de oricâte ori; pregătit pentru CI.
 
 \pset pager off
 \set ON_ERROR_STOP on
 \timing off
+
+-- Activează verificări stricte doar dacă setezi în psql: \set STRICT 1
+-- (altfel rulează doar informativ fără să fail-uiască pe planuri)
+\if :{?STRICT}
+\echo '[smoke] STRICT mode: ON'
+\else
+\echo '[smoke] STRICT mode: OFF'
+\endif
 
 SET application_name = 'smoke.sql';
 SET client_min_messages = warning;
@@ -20,37 +28,31 @@ SELECT now() AT TIME ZONE 'UTC' AS utc_now;
 SHOW search_path;
 SHOW server_version;
 
--- extensii critice și schema lor
 SELECT e.extname, n.nspname AS schema
 FROM pg_extension e
 JOIN pg_namespace n ON n.oid = e.extnamespace
 WHERE e.extname IN ('pg_stat_statements','pg_trgm')
 ORDER BY e.extname;
 
--- alembic_version: trebuie să fie în schema app și NU în public
 SELECT to_regclass('app.alembic_version')    IS NOT NULL AS app_version_table_present,
        to_regclass('public.alembic_version') IS NULL     AS public_version_table_absent;
 
--- info conexă
 SELECT current_database() AS db, current_schema;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 1) Date de probă idempotente (fără ON CONFLICT)
 -- ─────────────────────────────────────────────────────────────────────────────
 
--- categorie fixă (cu ID stabil)
 INSERT INTO app.categories (id, name, description)
 SELECT 9001, 'Teste Electronica', 'Smoke category'
 WHERE NOT EXISTS (SELECT 1 FROM app.categories WHERE id = 9001);
 
--- categorie "Arduino" (case-insensitive, fără ID fix)
 INSERT INTO app.categories (name, description)
 SELECT 'Arduino', 'MCU boards'
 WHERE NOT EXISTS (
   SELECT 1 FROM app.categories WHERE lower(name) = lower('Arduino')
 );
 
--- products
 INSERT INTO app.products (id, name, description, price, sku)
 SELECT 9101, 'Amplificator audio TPA3116', '2x50W', 129.90, 'SKU-SMOKE-TPA3116'
 WHERE NOT EXISTS (SELECT 1 FROM app.products WHERE id = 9101);
@@ -59,13 +61,10 @@ INSERT INTO app.products (name, description, price, sku)
 SELECT 'Senzor DS18B20', 'temperatura', 19.90, 'SKU-SMOKE-DS18B20'
 WHERE NOT EXISTS (SELECT 1 FROM app.products WHERE sku = 'SKU-SMOKE-DS18B20');
 
--- un produs cu "Arduino" în nume pentru testul de căutare trigram
 INSERT INTO app.products (name, description, price, sku)
 SELECT 'Arduino UNO R3 compatibil', 'placa MCU compatibila', 89.90, 'SKU-SMOKE-ARDUINO'
 WHERE NOT EXISTS (SELECT 1 FROM app.products WHERE sku = 'SKU-SMOKE-ARDUINO');
 
--- atașări M2M idempotente
--- 9101 -> 9001
 INSERT INTO app.product_categories (product_id, category_id)
 SELECT p.id, 9001
 FROM app.products p
@@ -75,7 +74,6 @@ WHERE p.sku = 'SKU-SMOKE-TPA3116'
     WHERE pc.product_id = p.id AND pc.category_id = 9001
   );
 
--- 'Arduino UNO R3 compatibil' -> categoria "Arduino"
 INSERT INTO app.product_categories (product_id, category_id)
 SELECT p.id, c.id
 FROM app.products p
@@ -85,6 +83,11 @@ WHERE p.sku = 'SKU-SMOKE-ARDUINO'
     SELECT 1 FROM app.product_categories pc
     WHERE pc.product_id = p.id AND pc.category_id = c.id
   );
+
+-- ANALYZE pentru planuri mai stabile la EXPLAIN
+ANALYZE app.products;
+ANALYZE app.categories;
+ANALYZE app.product_categories;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 2) Ajustează secvențele (dacă ID-urile au fost inserate manual)
@@ -110,7 +113,6 @@ END$$;
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 3) Verificări audit & trigger – existență coloane și trigger
 -- ─────────────────────────────────────────────────────────────────────────────
--- coloane audit
 SELECT table_name, column_name, data_type
 FROM information_schema.columns
 WHERE table_schema='app'
@@ -118,7 +120,6 @@ WHERE table_schema='app'
   AND column_name IN ('created_at','updated_at')
 ORDER BY table_name, column_name;
 
--- trigger prezent?
 SELECT relname AS table, tgname AS trigger_name
 FROM pg_trigger t
 JOIN pg_class c ON c.oid = t.tgrelid
@@ -130,7 +131,6 @@ WHERE n.nspname='app' AND tgname IN (
 )
 ORDER BY relname;
 
--- toate rândurile au created_at/updated_at populate?
 SELECT 'products' AS tbl,
        SUM((created_at IS NULL)::int) AS created_at_nulls,
        SUM((updated_at IS NULL)::int) AS updated_at_nulls
@@ -147,7 +147,7 @@ SELECT 'product_categories',
 FROM app.product_categories;
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- 4) Indexuri relevante (inclusiv trigram) – existență
+-- 4) Indexuri relevante (inclusiv trigram)
 -- ─────────────────────────────────────────────────────────────────────────────
 SELECT indexname, indexdef
 FROM pg_indexes
@@ -158,7 +158,6 @@ ORDER BY indexname;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 5) EXPLAIN ANALYZE – demonstrează folosirea indexurilor trigram
---    (Setările LOCAL trebuie să fie într-o tranzacție.)
 -- ─────────────────────────────────────────────────────────────────────────────
 
 -- a) name CONTAINS 'arduino' (trigram)
@@ -181,6 +180,52 @@ BEGIN;
 ROLLBACK;
 
 -- ─────────────────────────────────────────────────────────────────────────────
+-- 5.1) STRICT mode: aserțiuni pe planuri (opțional)
+-- ─────────────────────────────────────────────────────────────────────────────
+\if :{?STRICT}
+DO $$
+DECLARE
+  plan json;
+  ok   boolean;
+BEGIN
+  -- verifică folosirea ix_products_name_trgm
+  EXECUTE $q$
+    EXPLAIN (ANALYZE, FORMAT JSON)
+    SELECT id, name FROM app.products WHERE lower(name) LIKE '%arduino%'
+  $q$ INTO plan;
+  ok := plan::text ILIKE '%ix_products_name_trgm%';
+  IF NOT ok THEN
+    RAISE EXCEPTION 'Expected ix_products_name_trgm in plan, got: %', plan::text;
+  END IF;
+
+  -- verifică filtrul pe SKU (prezență index trigram generic în plan)
+  EXECUTE $q$
+    EXPLAIN (ANALYZE, FORMAT JSON)
+    SELECT id, sku FROM app.products WHERE sku IS NOT NULL AND lower(sku) LIKE 'sku-smoke-a%'
+  $q$ INTO plan;
+  ok := plan::text ILIKE '%ix_products_sku_trgm%' OR plan::text ILIKE '%Bitmap%Index%';
+  IF NOT ok THEN
+    RAISE EXCEPTION 'Expected trigram/bitmap usage for SKU plan, got: %', plan::text;
+  END IF;
+END$$;
+
+-- praguri minime de date
+DO $$
+DECLARE
+  prod_cnt int; cat_cnt int;
+BEGIN
+  SELECT COUNT(*) INTO prod_cnt FROM app.products;
+  SELECT COUNT(*) INTO cat_cnt  FROM app.categories;
+  IF prod_cnt < 5 THEN
+    RAISE EXCEPTION 'Expected >=5 products, got %', prod_cnt;
+  END IF;
+  IF cat_cnt < 2 THEN
+    RAISE EXCEPTION 'Expected >=2 categories, got %', cat_cnt;
+  END IF;
+END$$;
+\endif
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- 6) Agregări/rapoarte rapide
 -- ─────────────────────────────────────────────────────────────────────────────
 SELECT COUNT(*) AS products_total FROM app.products;
@@ -192,7 +237,6 @@ LEFT JOIN app.product_categories pc ON pc.category_id = c.id
 GROUP BY c.id, c.name
 ORDER BY c.name;
 
--- Mostră produse (ultimele 5)
 SELECT id, name, sku, price, created_at, updated_at
 FROM app.products
 ORDER BY id DESC
@@ -207,20 +251,11 @@ DO $$
 BEGIN
   IF to_regclass('pg_stat_statements') IS NOT NULL THEN
     RAISE NOTICE 'pg_stat_statements e disponibil.';
-    -- doar verificăm că vizualizarea răspunde
     PERFORM 1 FROM pg_stat_statements LIMIT 1;
   END IF;
 EXCEPTION WHEN undefined_table THEN
-  NULL; -- extensia nu e disponibilă; ignorăm
+  NULL;
 END$$;
-
--- (opțional, pentru citire manuală)
--- SELECT calls, round(total_exec_time::numeric,2) AS total_ms,
---        round(mean_exec_time::numeric,2) AS mean_ms,
---        left(query, 200) AS query
--- FROM pg_stat_statements
--- ORDER BY total_exec_time DESC
--- LIMIT 3;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 8) Validări finale „OK flags”
