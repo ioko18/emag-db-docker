@@ -1,6 +1,10 @@
 -- scripts/smoke.sql
 -- Smoke test idempotent pentru schema "app".
--- Rulabil de oricâte ori; nu necesită indexuri unice pentru idempotentă.
+-- Rulabil de oricâte ori; pregătit pentru rulare în CI.
+
+\pset pager off
+\set ON_ERROR_STOP on
+\timing off
 
 SET application_name = 'smoke.sql';
 SET client_min_messages = warning;
@@ -30,7 +34,7 @@ ORDER BY e.extname;
 SELECT to_regclass('app.alembic_version')       IS NOT NULL AS app_version_table_present,
        to_regclass('public.alembic_version')    IS NULL   AS public_version_table_absent;
 
--- heads locale din pg_extension (doar informativ)
+-- info conexă
 SELECT current_database() AS db, current_schema;
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -163,7 +167,7 @@ ORDER BY indexname;
 -- a) name CONTAINS 'arduino' (trigram)
 BEGIN;
   SET LOCAL enable_seqscan = off;
-  EXPLAIN (ANALYZE, BUFFERS, VERBOSE)
+  EXPLAIN (ANALYZE, COSTS, SUMMARY)
   SELECT id, name
   FROM app.products
   WHERE lower(name) LIKE '%arduino%';
@@ -172,7 +176,7 @@ ROLLBACK;
 -- b) sku prefix 'SKU-SMOKE-A%' (trigram cu WHERE sku IS NOT NULL)
 BEGIN;
   SET LOCAL enable_seqscan = off;
-  EXPLAIN (ANALYZE, BUFFERS, VERBOSE)
+  EXPLAIN (ANALYZE, COSTS, SUMMARY)
   SELECT id, sku
   FROM app.products
   WHERE sku IS NOT NULL
@@ -198,27 +202,26 @@ ORDER BY id DESC
 LIMIT 5;
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- 7) Observabilitate: există pg_stat_statements?
+-- 7) Observabilitate: există pg_stat_statements (în app sau public)?
 -- ─────────────────────────────────────────────────────────────────────────────
-SELECT to_regclass('public.pg_stat_statements') IS NOT NULL AS pg_stat_statements_available;
+SELECT to_regclass('pg_stat_statements') IS NOT NULL AS pg_stat_statements_available;
 
--- Dacă e prezent, citim 3 query-uri „top” după total_exec_time (nu e eroare dacă e gol)
 DO $$
 BEGIN
-  IF to_regclass('public.pg_stat_statements') IS NOT NULL THEN
-    RAISE NOTICE 'Top queries (primele 3 după total_exec_time):';
-    PERFORM 1 FROM public.pg_stat_statements LIMIT 1;
+  IF to_regclass('pg_stat_statements') IS NOT NULL THEN
+    RAISE NOTICE 'pg_stat_statements e disponibil.';
+    -- doar verificăm că vizualizarea răspunde
+    PERFORM 1 FROM pg_stat_statements LIMIT 1;
   END IF;
 EXCEPTION WHEN undefined_table THEN
-  -- extensia nu e încă disponibilă (ex: preload neactiv); ignorăm
-  NULL;
+  NULL; -- extensia nu e disponibilă; ignorăm
 END$$;
 
 -- (opțional, pentru citire manuală)
 -- SELECT calls, round(total_exec_time::numeric,2) AS total_ms,
 --        round(mean_exec_time::numeric,2) AS mean_ms,
 --        left(query, 200) AS query
--- FROM public.pg_stat_statements
+-- FROM pg_stat_statements
 -- ORDER BY total_exec_time DESC
 -- LIMIT 3;
 
