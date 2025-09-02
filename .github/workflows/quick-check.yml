@@ -1,3 +1,4 @@
+# .github/workflows/quick-check.yml
 name: Quick Check
 
 on:
@@ -9,15 +10,17 @@ jobs:
   qc:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Build & run compose
+      - name: Prepare .env (from example)
         run: |
-          docker compose build app
-          docker compose up -d --force-recreate
-          docker compose ps
+          set -euo pipefail
+          if [ -f .env.example ]; then
+            cp .env.example .env
+          fi
+          # Valori minime ca să nu pice docker compose
+          grep -q '^APP_PORT=' .env || echo 'APP_PORT=8001' >> .env
+          grep -q '^POSTGRES_PASSWORD=' .env || echo 'POSTGRES_PASSWORD=postgres' >> .env
 
       - name: Quick check (make ci)
-        run: |
-          make ci
+        run: make ci
