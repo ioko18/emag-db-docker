@@ -55,8 +55,8 @@ jobs:
           context: .
           file: ./Dockerfile
           target: runtime
-          tags: emagdb-app:latest
-          load: true
+          tags: emagdb-app:latest          # trebuie să corespundă cu 'image:' din docker-compose.yml
+          load: true                       # încarcă imaginea în daemon pentru compose
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
@@ -71,21 +71,21 @@ jobs:
           docker compose up -d --no-build --force-recreate
           docker compose ps
 
-      # STRICT doar pe main; exportăm PGPASSWORD + restul PG* din .env ca psql să nu ceară parola
+      # STRICT doar pe main; psql are nevoie de PG* + PGPASSWORD.
+      # Dezactivăm pager-ul și eliminăm PGOPTIONS (cauza erorii „invalid argument: -c”).
       - name: Quick check (STRICT on main)
         if: github.ref == 'refs/heads/main'
         shell: bash
         run: |
           set -euo pipefail
-          # exportă toate variabilele din .env (sigur pentru valorile noastre simple KEY=VALUE)
           set -a; source .env; set +a
-          # hint-uri pentru psql, dacă scripturile folosesc conexiune pe host
           export PGPASSWORD="${POSTGRES_PASSWORD:-}"
           export PGHOST="${PGHOST:-127.0.0.1}"
           export PGPORT="${PGPORT:-${DB_PORT:-5434}}"
           export PGUSER="${PGUSER:-${POSTGRES_USER:-appuser}}"
           export PGDATABASE="${PGDATABASE:-${POSTGRES_DB:-appdb}}"
           export SMOKE_STRICT=1
+          export PAGER=; export PSQL_PAGER=; unset PGOPTIONS
           make ci
 
       - name: Quick check
@@ -99,6 +99,7 @@ jobs:
           export PGPORT="${PGPORT:-${DB_PORT:-5434}}"
           export PGUSER="${PGUSER:-${POSTGRES_USER:-appuser}}"
           export PGDATABASE="${PGDATABASE:-${POSTGRES_DB:-appdb}}"
+          export PAGER=; export PSQL_PAGER=; unset PGOPTIONS
           make ci
 
       - name: Dump logs on failure
@@ -121,5 +122,5 @@ jobs:
         if: always()
         shell: bash
         run: |
-          [[ -f .env ]] || : > .env   # dacă a eșuat devreme și .env nu există
+          [[ -f .env ]] || : > .env
           docker compose down -v --remove-orphans || true
