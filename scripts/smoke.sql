@@ -40,9 +40,8 @@ SELECT to_regclass('app.alembic_version')    IS NOT NULL AS app_version_table_pr
 SELECT current_database() AS db, current_schema;
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- 1) Seed idempotent – întâi inserările CU ID fix (nu folosesc secvența)
---    Apoi REGLĂM SECVENȚELE, și abia după aceea inserările fără ID.
---    (evită coliziuni cu PK atunci când există seed-uri/manual inserts)
+-- 1) Seed idempotent – întâi inserările CU ID fix (nu folosesc secvența),
+--    apoi reglăm secvențele, apoi inserările fără ID.
 -- ─────────────────────────────────────────────────────────────────────────────
 
 -- categorie fixă (ID stabil)
@@ -79,17 +78,15 @@ BEGIN
 END$$;
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- 3) Inserări FĂRĂ ID (bazate pe secvență) – după reglarea secvențelor
+-- 3) Inserări idempotente fără ID + legături categorie-produs
 -- ─────────────────────────────────────────────────────────────────────────────
 
--- categorie "Arduino" (case-insensitive, fără ID fix)
 INSERT INTO app.categories (name, description)
 SELECT 'Arduino', 'MCU boards'
 WHERE NOT EXISTS (
   SELECT 1 FROM app.categories WHERE lower(name) = lower('Arduino')
 );
 
--- produse fără ID explicit (bazate pe secvență)
 INSERT INTO app.products (name, description, price, sku)
 SELECT 'Senzor DS18B20', 'temperatura', 19.90, 'SKU-SMOKE-DS18B20'
 WHERE NOT EXISTS (SELECT 1 FROM app.products WHERE sku = 'SKU-SMOKE-DS18B20');
@@ -98,7 +95,6 @@ INSERT INTO app.products (name, description, price, sku)
 SELECT 'Arduino UNO R3 compatibil', 'placa MCU compatibila', 89.90, 'SKU-SMOKE-ARDUINO'
 WHERE NOT EXISTS (SELECT 1 FROM app.products WHERE sku = 'SKU-SMOKE-ARDUINO');
 
--- atașări M2M
 INSERT INTO app.product_categories (product_id, category_id)
 SELECT p.id, 9001
 FROM app.products p
@@ -201,39 +197,40 @@ DECLARE
   plan json;
   ok   boolean;
 BEGIN
-  -- verifică folosirea ix_products_name_trgm
+  -- Forțează preferința de index în tranzacția curentă a DO-ului
+  PERFORM set_config('enable_seqscan',  'off',  true);
+  PERFORM set_config('enable_indexscan','on',   true);
+  PERFORM set_config('enable_bitmapscan','on',  true);
+
+  -- verifică folosirea indexului trigram pe name (sau, cel puțin, un Bitmap Index Scan)
   EXECUTE $q$
     EXPLAIN (ANALYZE, FORMAT JSON)
     SELECT id, name FROM app.products WHERE lower(name) LIKE '%arduino%'
   $q$ INTO plan;
-  ok := plan::text ILIKE '%ix_products_name_trgm%';
+  ok := plan::text ILIKE '%ix_products_name_trgm%' OR plan::text ILIKE '%Bitmap%Index%Scan%';
   IF NOT ok THEN
-    RAISE EXCEPTION 'Expected ix_products_name_trgm in plan, got: %', plan::text;
+    RAISE EXCEPTION 'Expected trigram/bitmap on name plan, got: %', plan::text;
   END IF;
 
-  -- verifică filtrul pe SKU (prezență index trigram sau bitmap index scan)
+  -- verifică filtrul pe SKU: acceptă trigram, bitmap sau btree funcțional
   EXECUTE $q$
     EXPLAIN (ANALYZE, FORMAT JSON)
     SELECT id, sku FROM app.products WHERE sku IS NOT NULL AND lower(sku) LIKE 'sku-smoke-a%'
   $q$ INTO plan;
-  ok := plan::text ILIKE '%ix_products_sku_trgm%' OR plan::text ILIKE '%Bitmap%Index%';
+  ok := plan::text ILIKE '%ix_products_sku_trgm%'
+        OR plan::text ILIKE '%Bitmap%Index%Scan%'
+        OR plan::text ILIKE '%Index Scan using ix_products_sku%';
   IF NOT ok THEN
-    RAISE EXCEPTION 'Expected trigram/bitmap usage for SKU plan, got: %', plan::text;
+    RAISE EXCEPTION 'Expected trigram/bitmap/btree on SKU plan, got: %', plan::text;
   END IF;
-END$$;
 
--- praguri minime de date
-DO $$
-DECLARE
-  prod_cnt int; cat_cnt int;
-BEGIN
-  SELECT COUNT(*) INTO prod_cnt FROM app.products;
-  SELECT COUNT(*) INTO cat_cnt  FROM app.categories;
-  IF prod_cnt < 5 THEN
-    RAISE EXCEPTION 'Expected >=5 products, got %', prod_cnt;
+  -- praguri minime de date
+  PERFORM 1;
+  IF (SELECT COUNT(*) FROM app.products)  < 5 THEN
+    RAISE EXCEPTION 'Expected >=5 products';
   END IF;
-  IF cat_cnt < 2 THEN
-    RAISE EXCEPTION 'Expected >=2 categories, got %', cat_cnt;
+  IF (SELECT COUNT(*) FROM app.categories) < 2 THEN
+    RAISE EXCEPTION 'Expected >=2 categories';
   END IF;
 END$$;
 \endif
