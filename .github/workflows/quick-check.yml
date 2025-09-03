@@ -19,12 +19,33 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # opțional: dacă ai un .env dedicat CI-ului, îl copiem peste .env
-      - name: Prepare .env for CI
+      # Asigură că .env există pentru docker compose (env_file: .env)
+      - name: Ensure .env for Compose
+        shell: bash
         run: |
-          if [ -f .env.ci ]; then cp .env.ci .env; fi
+          set -euo pipefail
+          if [[ -f .env.ci ]]; then
+            echo "[CI] Using .env.ci -> .env"
+            cp .env.ci .env
+          elif [[ -f .env.example ]]; then
+            echo "[CI] Using .env.example -> .env"
+            cp .env.example .env
+          else
+            echo "[CI] Creating minimal .env"
+            cat > .env <<'EOF'
+            # --- minimal CI defaults ---
+            APP_PORT=8010
+            DB_PORT=5434
+            POSTGRES_DB=appdb
+            POSTGRES_USER=appuser
+            POSTGRES_PASSWORD=appsecret
+            DB_SCHEMA=app
+            EOF
+          fi
+          echo "[CI] .env ready:"
+          sed -e 's/POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=*** (redacted)/' .env
 
-      # Buildx cu cache GitHub Actions (construim doar o dată imaginea runtime)
+      # Buildx + cache GitHub Actions (înlocuiește "compose build")
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -34,33 +55,33 @@ jobs:
           context: .
           file: ./Dockerfile
           target: runtime
-          tags: emagdb-app:latest          # trebuie să corespundă cu `image:` din docker-compose.yml
-          load: true                       # încarcă imaginea în daemon pentru `docker compose up`
+          tags: emagdb-app:latest          # trebuie să corespundă cu 'image:' din docker-compose.yml
+          load: true                       # încarcă imaginea în daemon-ul local, pentru compose
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
             APP_UID=10001
             APP_GID=10001
 
-      # pornim serviciile folosind imaginea deja construită (fără rebuild)
+      # pornește serviciile fără rebuild (folosește imaginea deja construită)
       - name: Start compose (no build)
+        shell: bash
         run: |
+          set -euo pipefail
           docker compose up -d --no-build --force-recreate
           docker compose ps
 
-      # Rulăm quick check-ul complet (build/migrate/seed/health/smoke).
-      # Pe `main` activăm STRICT pentru smoke.sql (scriptul îl citește din env).
+      # Dacă vrei un mod STRICT doar pe main (ex. variabilă care schimbă testele)
       - name: Quick check (STRICT on main)
-        if: github.ref_name == 'main'
-        run: make ci
-        env:
-          STRICT: "1"
+        if: github.ref == 'refs/heads/main'
+        run: |
+          export SMOKE_STRICT=1
+          make ci
 
       - name: Quick check
-        if: github.ref_name != 'main'
+        if: github.ref != 'refs/heads/main'
         run: make ci
 
-      # La eșec, scoatem rapid logurile
       - name: Dump logs on failure
         if: failure()
         run: |
@@ -69,7 +90,6 @@ jobs:
           echo "---- last 200 lines of logs ----"
           tail -n 200 compose.log || true
 
-      # (opțional) atașăm logurile ca artifact pentru inspecție ulterioară
       - name: Upload logs artifact
         if: failure()
         uses: actions/upload-artifact@v4
