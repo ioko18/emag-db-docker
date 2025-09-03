@@ -2,13 +2,32 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# --- Config DB (override prin env) ---
+# ─────────────────────────────────────────────────────────────────────────────
+# Config DB (override prin env)
+# ─────────────────────────────────────────────────────────────────────────────
 : "${PGHOST:=127.0.0.1}"
 : "${PGPORT:=5434}"
 : "${PGUSER:=appuser}"
 : "${PGDATABASE:=appdb}"
+: "${PGCONNECT_TIMEOUT:=5}"
 
-# --- Config API (override prin env) ---
+# Dacă PGPASSWORD nu e setat, încearcă să-l iei din POSTGRES_PASSWORD (sau APP_DB_PASSWORD)
+if [ -z "${PGPASSWORD:-}" ]; then
+  if [ -n "${POSTGRES_PASSWORD:-}" ]; then
+    export PGPASSWORD="$POSTGRES_PASSWORD"
+  elif [ -n "${APP_DB_PASSWORD:-}" ]; then
+    export PGPASSWORD="$APP_DB_PASSWORD"
+  fi
+fi
+
+# Unele medii pot seta PGOPTIONS problematic (ex: "-csearch_path=...").
+# Ca să evităm eroarea "invalid command-line argument for server process: -c",
+# resetăm explicit PGOPTIONS la nimic pentru acest script.
+unset PGOPTIONS || true
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Config API (override prin env)
+# ─────────────────────────────────────────────────────────────────────────────
 : "${APP_PORT:=8001}"
 : "${API_WAIT_RETRIES:=60}"
 : "${API_WAIT_SLEEP_SECS:=1}"
@@ -16,8 +35,8 @@ set -euo pipefail
 : "${CURL_MAX_TIME:=5}"
 
 have_cmd() { command -v "$1" >/dev/null 2>&1; }
-log() { printf '[SMOKE] %s\n' "$*"; }
-die() { printf '[SMOKE][ERR] %s\n' "$*" >&2; exit 1; }
+log()      { printf '[SMOKE] %s\n' "$*"; }
+die()      { printf '[SMOKE][ERR] %s\n' "$*" >&2; exit 1; }
 
 require_cmd() {
   local ok=1
@@ -27,13 +46,33 @@ require_cmd() {
       ok=0
     fi
   done
-  [ "$ok" -eq 1 ] || die "Install commands above and retry."
+  [ "$ok" -eq 1 ] || die "Install the commands above and retry."
 }
 
-# ne asigurăm că avem uneltele minime
+# Uneltele minime
 require_cmd curl psql
 
-# --- Determine BASE_URL (auto-detect host port if not provided) ---
+# Diagnostic automat la exit pe eroare
+on_err() {
+  local ec=$?
+  [ $ec -eq 0 ] && return 0
+  log "Last status & logs (tail) ↓"
+  if have_cmd docker; then
+    if docker compose ps >/dev/null 2>&1; then
+      docker compose ps || true
+      docker compose logs --tail=120 || true
+    elif have_cmd docker-compose; then
+      docker-compose ps || true
+      docker-compose logs --tail=120 || true
+    fi
+  fi
+  exit $ec
+}
+trap on_err EXIT
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Determine BASE_URL (auto-detect host port if not provided)
+# ─────────────────────────────────────────────────────────────────────────────
 detect_base_url() {
   # 1) Dacă e deja setat din env, îl păstrăm
   if [ -n "${BASE_URL:-}" ]; then
@@ -109,18 +148,37 @@ diagnose_if_down() {
   curl -v --connect-timeout "${CURL_CONNECT_TIMEOUT}" --max-time "${CURL_MAX_TIME}" "${BASE_URL}/health" || true
 }
 
-# --- 1) Rulează SQL smoke (idempotent) ---
+# ─────────────────────────────────────────────────────────────────────────────
+# 1) Rulează SQL smoke (idempotent)
+#    -X = nu citi ~/.psqlrc (pentru a evita setări locale neprevăzute)
+#    -w = nu cere parolă (fail fast dacă lipsește PGPASSWORD)
+#    STRICT: dacă SMOKE_STRICT=1, trimitem variabila către psql/sql
+# ─────────────────────────────────────────────────────────────────────────────
 log "Running SQL smoke..."
-psql "host=$PGHOST port=$PGPORT user=$PGUSER dbname=$PGDATABASE" -v ON_ERROR_STOP=1 -f scripts/smoke.sql
+PSQL_STRICT=()
+if [ "${SMOKE_STRICT:-0}" = "1" ]; then
+  PSQL_STRICT+=( -v STRICT=1 )
+fi
 
-# --- 2) Așteaptă API-ul să fie ready (cu auto-detect pe port) ---
+# Conexiune libpq clară, fără să scurgem parola în CLI
+psql -X -w \
+  --set=ON_ERROR_STOP=1 \
+  "${PSQL_STRICT[@]}" \
+  "host=${PGHOST} port=${PGPORT} user=${PGUSER} dbname=${PGDATABASE} connect_timeout=${PGCONNECT_TIMEOUT}" \
+  -f scripts/smoke.sql
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 2) Așteaptă API-ul să fie ready (cu auto-detect pe port)
+# ─────────────────────────────────────────────────────────────────────────────
 if ! wait_for_api "${BASE_URL}/health"; then
   log "API did not become ready in time."
   diagnose_if_down
   exit 1
 fi
 
-# --- 3) Checks API ---
+# ─────────────────────────────────────────────────────────────────────────────
+# 3) Checks API
+# ─────────────────────────────────────────────────────────────────────────────
 log "Health:"
 json_get "${BASE_URL}/health" '.'
 

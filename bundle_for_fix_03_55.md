@@ -3,8 +3,7 @@
 > Generat automat pentru depanare. Ordinea: cale relativă în repo.
 
 
-# path-ul fisierului: .dockerignore
-
+# path-ul fisierului: .dockerignore  (size=1047 bytes)
 
 ```
 # ========== VCS ==========
@@ -91,8 +90,7 @@ docker-compose.override.yml
 
 ```
 
-# path-ul fisierului: .github/workflows/quick-check.yml
-
+# path-ul fisierului: .github/workflows/quick-check.yml  (size=4071 bytes)
 
 ```yaml
 # .github/workflows/quick-check.yml
@@ -152,8 +150,8 @@ jobs:
           context: .
           file: ./Dockerfile
           target: runtime
-          tags: emagdb-app:latest
-          load: true
+          tags: emagdb-app:latest          # trebuie să corespundă cu 'image:' din docker-compose.yml
+          load: true                       # încarcă imaginea în daemon pentru compose
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
@@ -168,21 +166,21 @@ jobs:
           docker compose up -d --no-build --force-recreate
           docker compose ps
 
-      # STRICT doar pe main; exportăm PGPASSWORD + restul PG* din .env ca psql să nu ceară parola
+      # STRICT doar pe main; psql are nevoie de PG* + PGPASSWORD.
+      # Dezactivăm pager-ul și eliminăm PGOPTIONS (cauza erorii „invalid argument: -c”).
       - name: Quick check (STRICT on main)
         if: github.ref == 'refs/heads/main'
         shell: bash
         run: |
           set -euo pipefail
-          # exportă toate variabilele din .env (sigur pentru valorile noastre simple KEY=VALUE)
           set -a; source .env; set +a
-          # hint-uri pentru psql, dacă scripturile folosesc conexiune pe host
           export PGPASSWORD="${POSTGRES_PASSWORD:-}"
           export PGHOST="${PGHOST:-127.0.0.1}"
           export PGPORT="${PGPORT:-${DB_PORT:-5434}}"
           export PGUSER="${PGUSER:-${POSTGRES_USER:-appuser}}"
           export PGDATABASE="${PGDATABASE:-${POSTGRES_DB:-appdb}}"
           export SMOKE_STRICT=1
+          export PAGER=; export PSQL_PAGER=; unset PGOPTIONS
           make ci
 
       - name: Quick check
@@ -196,6 +194,7 @@ jobs:
           export PGPORT="${PGPORT:-${DB_PORT:-5434}}"
           export PGUSER="${PGUSER:-${POSTGRES_USER:-appuser}}"
           export PGDATABASE="${PGDATABASE:-${POSTGRES_DB:-appdb}}"
+          export PAGER=; export PSQL_PAGER=; unset PGOPTIONS
           make ci
 
       - name: Dump logs on failure
@@ -218,13 +217,12 @@ jobs:
         if: always()
         shell: bash
         run: |
-          [[ -f .env ]] || : > .env   # dacă a eșuat devreme și .env nu există
+          [[ -f .env ]] || : > .env
           docker compose down -v --remove-orphans || true
 
 ```
 
-# path-ul fisierului: .gitignore
-
+# path-ul fisierului: .gitignore  (size=688 bytes)
 
 ```
 # --- Python ---
@@ -291,8 +289,7 @@ Thumbs.db
 
 ```
 
-# path-ul fisierului: .vscode/launch.json
-
+# path-ul fisierului: .vscode/launch.json  (size=309 bytes)
 
 ```json
 {
@@ -313,8 +310,7 @@ Thumbs.db
 
 ```
 
-# path-ul fisierului: .vscode/settings.json
-
+# path-ul fisierului: .vscode/settings.json  (size=1111 bytes)
 
 ```json
 {
@@ -359,8 +355,7 @@ Thumbs.db
 
 ```
 
-# path-ul fisierului: alembic.ini
-
+# path-ul fisierului: alembic.ini  (size=2053 bytes)
 
 ```ini
 # Alembic config pentru proiect
@@ -449,8 +444,7 @@ datefmt = %H:%M:%S
 
 ```
 
-# path-ul fisierului: app/__init__.py
-
+# path-ul fisierului: app/__init__.py  (size=67 bytes)
 
 ```python
 # app/__init__.py
@@ -458,8 +452,7 @@ datefmt = %H:%M:%S
 
 ```
 
-# path-ul fisierului: app/core/logging.py
-
+# path-ul fisierului: app/core/logging.py  (size=396 bytes)
 
 ```python
 import logging, sys
@@ -479,8 +472,7 @@ def setup_logging(level: str = "INFO"):
 
 ```
 
-# path-ul fisierului: app/core/settings.py
-
+# path-ul fisierului: app/core/settings.py  (size=1103 bytes)
 
 ```python
 from __future__ import annotations
@@ -493,8 +485,7 @@ class Settings(BaseSettings):
     OBS_KEY: Optional[str] = None
 
     # DB
-    DATABASE_URL: str = Field(..., description="postgresql+psycopg://appuser:<PASS>@db:5432/appdb")
-
+    DATABASE_URL: st…******************************************************************************
     # eMAG accounts (placeholders)
     EMAG_MAIN_USERNAME: Optional[str] = None
     EMAG_MAIN_PASSWORD: Optional[str] = None
@@ -520,8 +511,7 @@ settings = Settings()
 
 ```
 
-# path-ul fisierului: app/crud/category.py
-
+# path-ul fisierului: app/crud/category.py  (size=6778 bytes)
 
 ```python
 # app/crud/category.py
@@ -721,8 +711,7 @@ def detach_product(db: Session, category_id: int, product_id: int) -> bool:
 
 ```
 
-# path-ul fisierului: app/crud/product.py
-
+# path-ul fisierului: app/crud/product.py  (size=5615 bytes)
 
 ```python
 # app/crud/product.py
@@ -913,8 +902,7 @@ def delete_by_id(db: Session, product_id: int) -> bool:
 
 ```
 
-# path-ul fisierului: app/database.py
-
+# path-ul fisierului: app/database.py  (size=8275 bytes)
 
 ```python
 # app/database.py
@@ -982,7 +970,7 @@ def _sanitize_search_path(raw: str, fallback: str) -> str:
 # -----------------------------
 # Config din environment
 # -----------------------------
-DATABASE_URL = (os.getenv("DATABASE_URL", "sqlite:///./app.db") or "").strip()
+DATABASE_URL = (o…************************************************************
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL este gol. Setează o valoare validă.")
 
@@ -1158,8 +1146,7 @@ __all__ = [
 
 ```
 
-# path-ul fisierului: app/docker/app-entrypoint.sh
-
+# path-ul fisierului: app/docker/app-entrypoint.sh  (size=4145 bytes, exec)
 
 ```bash
 # docker/app-entrypoint.sh
@@ -1301,8 +1288,7 @@ main "$@"
 
 ```
 
-# path-ul fisierului: app/docker/initdb-test/00_schema.sql
-
+# path-ul fisierului: app/docker/initdb-test/00_schema.sql  (size=311 bytes)
 
 ```sql
 DO $$
@@ -1317,8 +1303,7 @@ ALTER ROLE appuser IN DATABASE appdb_test SET search_path = app, public;
 
 ```
 
-# path-ul fisierului: app/docker/initdb/00_schema.sql
-
+# path-ul fisierului: app/docker/initdb/00_schema.sql  (size=295 bytes)
 
 ```sql
 DO $$
@@ -1333,8 +1318,7 @@ ALTER ROLE appuser IN DATABASE appdb SET search_path = app, public;
 
 ```
 
-# path-ul fisierului: app/integrations/emag_sdk.py
-
+# path-ul fisierului: app/integrations/emag_sdk.py  (size=20220 bytes)
 
 ```python
 from __future__ import annotations
@@ -1410,9 +1394,7 @@ class EmagApiError(Exception):
 @dataclass(frozen=True)
 class EmagAuth:
     username: str
-    password: str
-
-
+    password: st…***
 @dataclass(frozen=True)
 class EmagConfig:
     account: str          # "main" | "fbe"
@@ -1915,8 +1897,7 @@ def get_config_from_env(account: str, country: str) -> EmagConfig:
 
 ```
 
-# path-ul fisierului: app/main.py
-
+# path-ul fisierului: app/main.py  (size=22964 bytes)
 
 ```python
 # app/main.py
@@ -2480,8 +2461,7 @@ app.openapi_schema = None  # invalidare cache, util dacă /openapi.json a fost c
 
 ```
 
-# path-ul fisierului: app/models.py
-
+# path-ul fisierului: app/models.py  (size=799 bytes)
 
 ```python
 # app/models.py
@@ -2508,16 +2488,14 @@ class Product(Base):
 
 ```
 
-# path-ul fisierului: app/models/__init__.py
-
+# path-ul fisierului: app/models/__init__.py  (size=86 bytes)
 
 ```python
 from .product import Product  # sau cum se numește modelul tău
 __all__ = ["Product"]
 ```
 
-# path-ul fisierului: app/models/category.py
-
+# path-ul fisierului: app/models/category.py  (size=2043 bytes)
 
 ```python
 # app/models/category.py
@@ -2580,8 +2558,7 @@ class ProductCategory(Base):
 
 ```
 
-# path-ul fisierului: app/models/emag.py
-
+# path-ul fisierului: app/models/emag.py  (size=4358 bytes)
 
 ```python
 from __future__ import annotations
@@ -2683,8 +2660,7 @@ class EmagStockByWarehouse(Base):
 
 ```
 
-# path-ul fisierului: app/models/product.py
-
+# path-ul fisierului: app/models/product.py  (size=2292 bytes)
 
 ```python
 # app/models/product.py
@@ -2742,8 +2718,7 @@ class Product(Base):
 
 ```
 
-# path-ul fisierului: app/repositories/emag_offers.py
-
+# path-ul fisierului: app/repositories/emag_offers.py  (size=1192 bytes)
 
 ```python
 from __future__ import annotations
@@ -2776,8 +2751,7 @@ def upsert_offer(db: Session, payload: Dict[str, Any]) -> int:
 
 ```
 
-# path-ul fisierului: app/routers/__init__.py
-
+# path-ul fisierului: app/routers/__init__.py  (size=83 bytes)
 
 ```python
 # app/routers/__init__.py
@@ -2785,8 +2759,7 @@ def upsert_offer(db: Session, payload: Dict[str, Any]) -> int:
 
 ```
 
-# path-ul fisierului: app/routers/category.py
-
+# path-ul fisierului: app/routers/category.py  (size=4834 bytes)
 
 ```python
 # app/routers/category.py
@@ -2939,8 +2912,7 @@ def detach_product(category_id: int, product_id: int, db: Session = Depends(get_
 
 ```
 
-# path-ul fisierului: app/routers/emag/__init__.py
-
+# path-ul fisierului: app/routers/emag/__init__.py  (size=2025 bytes)
 
 ```python
 # app/routers/emag/__init__.py
@@ -2999,8 +2971,7 @@ __all__ = ["router"]
 
 ```
 
-# path-ul fisierului: app/routers/emag/awb.py
-
+# path-ul fisierului: app/routers/emag/awb.py  (size=1240 bytes)
 
 ```python
 # app/routers/emag/awb.py
@@ -3042,8 +3013,7 @@ async def awb_read(
 
 ```
 
-# path-ul fisierului: app/routers/emag/categories.py
-
+# path-ul fisierului: app/routers/emag/categories.py  (size=2252 bytes)
 
 ```python
 # app/routers/emag/categories.py
@@ -3114,8 +3084,7 @@ async def categories_read(
 
 ```
 
-# path-ul fisierului: app/routers/emag/characteristics.py
-
+# path-ul fisierului: app/routers/emag/characteristics.py  (size=3020 bytes)
 
 ```python
 # app/routers/emag/characteristics.py
@@ -3214,8 +3183,7 @@ async def characteristics_validate_map(payload: CharValidateIn) -> CharValidateO
 
 ```
 
-# path-ul fisierului: app/routers/emag/deps.py
-
+# path-ul fisierului: app/routers/emag/deps.py  (size=2423 bytes)
 
 ```python
 # app/routers/emag/deps.py
@@ -3291,8 +3259,7 @@ __all__ = ("emag_client_dependency",)
 
 ```
 
-# path-ul fisierului: app/routers/emag/meta.py
-
+# path-ul fisierului: app/routers/emag/meta.py  (size=873 bytes)
 
 ```python
 # app/routers/emag/meta.py
@@ -3322,8 +3289,7 @@ async def meta(client: "EmagClient" = Depends(emag_client_dependency)) -> dict[s
 
 ```
 
-# path-ul fisierului: app/routers/emag/offers_read.py
-
+# path-ul fisierului: app/routers/emag/offers_read.py  (size=16247 bytes)
 
 ```python
 # app/routers/emag/offers_read.py
@@ -3761,8 +3727,7 @@ async def product_offer_read(
 
 ```
 
-# path-ul fisierului: app/routers/emag/offers_write.py
-
+# path-ul fisierului: app/routers/emag/offers_write.py  (size=1235 bytes)
 
 ```python
 # app/routers/emag/offers_write.py
@@ -3803,8 +3768,7 @@ async def offer_stock_update(
 
 ```
 
-# path-ul fisierului: app/routers/emag/orders.py
-
+# path-ul fisierului: app/routers/emag/orders.py  (size=1102 bytes)
 
 ```python
 # app/routers/emag/orders.py
@@ -3839,8 +3803,7 @@ async def orders_ack(
 
 ```
 
-# path-ul fisierului: app/routers/emag/schemas.py
-
+# path-ul fisierului: app/routers/emag/schemas.py  (size=9237 bytes)
 
 ```python
 from __future__ import annotations
@@ -4121,8 +4084,7 @@ class OfferNormalized(BaseModel):
 
 ```
 
-# path-ul fisierului: app/routers/emag/utils.py
-
+# path-ul fisierului: app/routers/emag/utils.py  (size=6046 bytes)
 
 ```python
 from __future__ import annotations
@@ -4308,8 +4270,7 @@ async def call_emag(
 
 ```
 
-# path-ul fisierului: app/routers/observability.py
-
+# path-ul fisierului: app/routers/observability.py  (size=18251 bytes)
 
 ```python
 # app/routers/observability.py
@@ -4826,8 +4787,7 @@ def sample_load(
 
 ```
 
-# path-ul fisierului: app/routers/observability_ext.py
-
+# path-ul fisierului: app/routers/observability_ext.py  (size=1472 bytes)
 
 ```python
 from __future__ import annotations
@@ -4880,8 +4840,7 @@ def obs_hints() -> Dict[str, Any]:
 
 ```
 
-# path-ul fisierului: app/routers/product.py
-
+# path-ul fisierului: app/routers/product.py  (size=4651 bytes)
 
 ```python
 # app/routers/product.py
@@ -5041,15 +5000,13 @@ def delete_product(product_id: int, db: Session = Depends(get_db)):
 
 ```
 
-# path-ul fisierului: app/schemas/__init__.py
-
+# path-ul fisierului: app/schemas/__init__.py  (size=0 bytes)
 
 ```python
 
 ```
 
-# path-ul fisierului: app/schemas/category.py
-
+# path-ul fisierului: app/schemas/category.py  (size=2642 bytes)
 
 ```python
 # app/schemas/category.py
@@ -5151,8 +5108,7 @@ class CategoryPage(BaseModel):
 
 ```
 
-# path-ul fisierului: app/schemas/product.py
-
+# path-ul fisierului: app/schemas/product.py  (size=3964 bytes)
 
 ```python
 # app/schemas/product.py
@@ -5296,8 +5252,7 @@ class ProductPage(BaseModel):
 
 ```
 
-# path-ul fisierului: app/services/emag_value_map.py
-
+# path-ul fisierului: app/services/emag_value_map.py  (size=4066 bytes)
 
 ```python
 from __future__ import annotations
@@ -5466,8 +5421,7 @@ def map_value_for_emag(
 
 ```
 
-# path-ul fisierului: docker-compose.dev.yml
-
+# path-ul fisierului: docker-compose.dev.yml  (size=2314 bytes)
 
 ```yaml
 # Folosește împreună cu fișierul principal:
@@ -5523,7 +5477,7 @@ services:
         condition: service_healthy
     environment:
       # Conexiune directă la serviciul 'db' din rețeaua compose
-      DATABASE_URL: postgres://appuser:appsecret@db:5432/appdb?sslmode=disable
+      DATABASE_URL: po…*******************************************************
     ports:
       - "8081:8081"
     command: ["--listen=0.0.0.0", "--listen-port=8081"]
@@ -5533,8 +5487,7 @@ services:
 
 ```
 
-# path-ul fisierului: docker-compose.override.yml
-
+# path-ul fisierului: docker-compose.override.yml  (size=1150 bytes)
 
 ```yaml
 # docker-compose.override.yml — folosit doar local, peste docker-compose.yml
@@ -5571,8 +5524,7 @@ services:
 
 ```
 
-# path-ul fisierului: docker-compose.yml
-
+# path-ul fisierului: docker-compose.yml  (size=10067 bytes)
 
 ```yaml
 name: emagdb
@@ -5677,7 +5629,7 @@ x-secure-app: &secure-app
 x-pg-env: &pg-env
   TZ: Europe/Bucharest
   POSTGRES_USER: ${POSTGRES_USER:-appuser}
-  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-appsecret}
+  POSTGRES_PASSWORD: ${…****************************
   POSTGRES_DB: ${POSTGRES_DB:-appdb}
   POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C.UTF-8"
 
@@ -5752,7 +5704,7 @@ services:
     env_file: [.env]
     environment:
       <<: *app-env
-      DATABASE_URL: *db-url   # ✅ unificat pe psycopg3
+      DATABASE_URL: *d…*******************************
       ALEMBIC_VERSION_TABLE_SCHEMA: ${DB_SCHEMA:-app}
     user: "10001:10001"
     # Bind doar pe localhost; APP_PORT e configurabil (default 8010)
@@ -5775,7 +5727,7 @@ services:
     env_file: [.env]
     environment:
       <<: *app-env
-      DATABASE_URL: *db-url
+      DATABASE_URL: *d…****
     command: >
       bash -lc "python -m app.services.sync_emag_offers --interval 300"
     restart: unless-stopped
@@ -5793,7 +5745,7 @@ services:
       APP_RELOAD: "1"
       WATCHFILES_FORCE_POLLING: "true"
       ALEMBIC_SQL_ECHO: "1"
-      DATABASE_URL: *db-url
+      DATABASE_URL: *d…****
     volumes:
       - ./:/app
       - ./tests:/app/tests:ro
@@ -5810,7 +5762,7 @@ services:
       db: { condition: service_healthy }
     environment:
       DB_USER: ${POSTGRES_USER:-appuser}
-      DB_PASSWORD: ${POSTGRES_PASSWORD:-appsecret}
+      DB_PASSWORD: ${…****************************
       DB_HOST: db
       DB_PORT: 5432
       AUTH_TYPE: md5
@@ -5860,7 +5812,7 @@ services:
       db_test: { condition: service_healthy }
     environment:
       <<: *app-env
-      DATABASE_URL: *db-url-test
+      DATABASE_URL: *d…*********
       LOG_LEVEL: warning
       ALEMBIC_VERSION_TABLE_SCHEMA: ${DB_SCHEMA:-app}
       ALEMBIC_TRANSACTION_PER_MIGRATION: "1"
@@ -5880,7 +5832,7 @@ services:
       app-test: { condition: service_healthy }
     environment:
       <<: *app-env
-      DATABASE_URL: *db-url-test
+      DATABASE_URL: *d…*********
       BASE_URL: http://app-test:8001
       PYTEST_ADDOPTS: "-q -o cache_dir=/tmp/.pytest_cache"
       PYTHONUNBUFFERED: "1"
@@ -5896,7 +5848,7 @@ services:
     pull_policy: missing
     depends_on: { db: { condition: service_healthy } }
     environment:
-      DATABASE_URL: "postgres://${POSTGRES_USER:-appuser}:${POSTGRES_PASSWORD:-appsecret}@db:5432/${POSTGRES_DB:-appdb}?sslmode=disable"
+      DATABASE_URL: "p…*****************************************************************************************************************
     ports: ["${PGWEB_PORT:-8081}:8081"]
     restart: unless-stopped
     logging: *default-logging
@@ -5912,8 +5864,7 @@ networks:
 
 ```
 
-# path-ul fisierului: docker/app-entrypoint.sh
-
+# path-ul fisierului: docker/app-entrypoint.sh  (size=2945 bytes, exec)
 
 ```bash
 #!/usr/bin/env sh
@@ -6008,8 +5959,7 @@ exec "$@"
 
 ```
 
-# path-ul fisierului: docker/initdb-test/00_schema.sql
-
+# path-ul fisierului: docker/initdb-test/00_schema.sql  (size=362 bytes)
 
 ```sql
 DO $$
@@ -6025,8 +5975,7 @@ ALTER ROLE appuser IN DATABASE appdb_test SET search_path = app, public;
 
 ```
 
-# path-ul fisierului: docker/initdb/00_schema.sql
-
+# path-ul fisierului: docker/initdb/00_schema.sql  (size=3508 bytes)
 
 ```sql
 -- app/docker/initdb/00_schema.sql
@@ -6143,8 +6092,7 @@ SET search_path TO app, public;
 
 ```
 
-# path-ul fisierului: Dockerfile
-
+# path-ul fisierului: Dockerfile  (size=2153 bytes)
 
 ```dockerfile
 # syntax=docker/dockerfile:1.6
@@ -6213,8 +6161,7 @@ CMD ["/app/docker/app-entrypoint.sh"]
 
 ```
 
-# path-ul fisierului: Makefile
-
+# path-ul fisierului: Makefile  (size=127 bytes)
 
 ```makefile
 .PHONY: qc ci
@@ -6227,8 +6174,7 @@ ci:
 
 ```
 
-# path-ul fisierului: migrations/env.py
-
+# path-ul fisierului: migrations/env.py  (size=17882 bytes)
 
 ```python
 # migrations/env.py
@@ -6313,7 +6259,7 @@ def _build_url_from_parts() -> Optional[str]:
     host = (os.getenv("DB_HOST") or "").strip()
     port = os.getenv("DB_PORT")
     user = (os.getenv("DB_USER") or "").strip()
-    password = (os.getenv("DB_PASSWORD") or "").strip()
+    password = (o…*************************************
     dbname = (os.getenv("DB_NAME") or "").strip()
     if not (driver and host and dbname):
         return None
@@ -6321,7 +6267,7 @@ def _build_url_from_parts() -> Optional[str]:
         url = URL.create(
             drivername=driver,
             username=user or None,
-            password=password or None,
+            password=pa…**************
             host=host,
             port=int(port) if port else None,
             database=dbname,
@@ -6691,15 +6637,13 @@ else:
 
 ```
 
-# path-ul fisierului: migrations/README
-
+# path-ul fisierului: migrations/README  (size=38 bytes)
 
 ```
 Generic single-database configuration.
 ```
 
-# path-ul fisierului: migrations/script.py.mako
-
+# path-ul fisierului: migrations/script.py.mako  (size=704 bytes)
 
 ```
 """${message}
@@ -6733,8 +6677,7 @@ def downgrade() -> None:
 
 ```
 
-# path-ul fisierului: migrations/versions/2025_09_02-cb8d65506439_merge_emag_mvs_concurrent_perf_indexes.py
-
+# path-ul fisierului: migrations/versions/2025_09_02-cb8d65506439_merge_emag_mvs_concurrent_perf_indexes.py  (size=582 bytes)
 
 ```python
 """merge: eMAG MVs concurrent + perf indexes
@@ -6766,8 +6709,7 @@ def downgrade() -> None:
 
 ```
 
-# path-ul fisierului: migrations/versions/7786bc4a4177_baseline_models.py
-
+# path-ul fisierului: migrations/versions/7786bc4a4177_baseline_models.py  (size=1641 bytes)
 
 ```python
 """baseline models: create products (if missing)"""
@@ -6824,8 +6766,7 @@ def downgrade() -> None:
 
 ```
 
-# path-ul fisierului: migrations/versions/89a0ef6bfc2b_init_schema.py
-
+# path-ul fisierului: migrations/versions/89a0ef6bfc2b_init_schema.py  (size=1489 bytes)
 
 ```python
 """Initialize target schema and session search_path (PostgreSQL only).
@@ -6879,8 +6820,7 @@ def downgrade() -> None:
 
 ```
 
-# path-ul fisierului: migrations/versions/a1f2e3d4c5f6_add_price_and_lower_name_indexes.py
-
+# path-ul fisierului: migrations/versions/a1f2e3d4c5f6_add_price_and_lower_name_indexes.py  (size=2316 bytes)
 
 ```python
 """Add indexes for products (price, lower(name)).
@@ -6955,8 +6895,7 @@ def downgrade() -> None:
 
 ```
 
-# path-ul fisierului: migrations/versions/a2b3c4d5e6f7_emag_core_schema.py
-
+# path-ul fisierului: migrations/versions/a2b3c4d5e6f7_emag_core_schema.py  (size=18453 bytes)
 
 ```python
 # migrations/versions/a2b3c4d5e6f7_emag_core_schema.py
@@ -7386,8 +7325,7 @@ def downgrade() -> None:
 
 ```
 
-# path-ul fisierului: migrations/versions/a3b4c5d6e7f8_mv_concurrent_refresh.py
-
+# path-ul fisierului: migrations/versions/a3b4c5d6e7f8_mv_concurrent_refresh.py  (size=2967 bytes)
 
 ```python
 # migrations/versions/a3b4c5d6e7f8_mv_concurrent_refresh.py
@@ -7490,8 +7428,7 @@ def downgrade() -> None:
 
 ```
 
-# path-ul fisierului: migrations/versions/a3b4c5d6e7f9_perf_indexes.py
-
+# path-ul fisierului: migrations/versions/a3b4c5d6e7f9_perf_indexes.py  (size=835 bytes)
 
 ```python
 # migrations/versions/a3b4c5d6e7f9_perf_indexes.py
@@ -7516,8 +7453,7 @@ def downgrade():
 
 ```
 
-# path-ul fisierului: migrations/versions/c98b7cf3c0cf_add_sku_to_products.py
-
+# path-ul fisierului: migrations/versions/c98b7cf3c0cf_add_sku_to_products.py  (size=1845 bytes)
 
 ```python
 """add sku column to products + partial unique index (PG)"""
@@ -7585,8 +7521,7 @@ def downgrade() -> None:
 
 ```
 
-# path-ul fisierului: migrations/versions/cc1e2f3a4b5c_add_check_price_nonnegative.py
-
+# path-ul fisierului: migrations/versions/cc1e2f3a4b5c_add_check_price_nonnegative.py  (size=1779 bytes)
 
 ```python
 """Add CHECK constraint for non-negative price on products (NOT VALID first)."""
@@ -7652,8 +7587,7 @@ def downgrade() -> None:
 
 ```
 
-# path-ul fisierului: migrations/versions/d2c3b4a5f6e7_add_categories_and_product_categories.py
-
+# path-ul fisierului: migrations/versions/d2c3b4a5f6e7_add_categories_and_product_categories.py  (size=3569 bytes)
 
 ```python
 """Add categories and product_categories tables with indexes and FK CASCADE."""
@@ -7763,8 +7697,7 @@ def downgrade() -> None:
 
 ```
 
-# path-ul fisierului: migrations/versions/e7f8a9b0c1d2_validate_check_and_m2m_index.py
-
+# path-ul fisierului: migrations/versions/e7f8a9b0c1d2_validate_check_and_m2m_index.py  (size=2701 bytes)
 
 ```python
 """validate CHECK(price>=0) and add composite index on product_categories
@@ -7863,8 +7796,7 @@ def downgrade() -> None:
 
 ```
 
-# path-ul fisierului: migrations/versions/f0e1d2c3b4a5_observability_audit_trgm.py
-
+# path-ul fisierului: migrations/versions/f0e1d2c3b4a5_observability_audit_trgm.py  (size=5756 bytes)
 
 ```python
 from alembic import op, context
@@ -8026,8 +7958,7 @@ def downgrade():
 
 ```
 
-# path-ul fisierului: requirements.txt
-
+# path-ul fisierului: requirements.txt  (size=1114 bytes)
 
 ```
 # --- Runtime core ------------------------------------------------------------
@@ -8062,8 +7993,7 @@ respx>=0.21
 psycopg[binary]==3.2.1
 ```
 
-# path-ul fisierului: run_dev.sh
-
+# path-ul fisierului: run_dev.sh  (size=143 bytes, exec)
 
 ```bash
 #!/usr/bin/env bash
@@ -8075,8 +8005,7 @@ uvicorn app.main:app --reload --port 8001
 
 ```
 
-# path-ul fisierului: scripts/db-health.sh
-
+# path-ul fisierului: scripts/db-health.sh  (size=8153 bytes, exec)
 
 ```bash
 # scripts/db-health.sh
@@ -8314,8 +8243,7 @@ fi
 
 ```
 
-# path-ul fisierului: scripts/db-maint.sh
-
+# path-ul fisierului: scripts/db-maint.sh  (size=8170 bytes, exec)
 
 ```bash
 # scripts/db-maint.sh
@@ -8550,8 +8478,7 @@ fi
 
 ```
 
-# path-ul fisierului: scripts/quick_check.sh
-
+# path-ul fisierului: scripts/quick_check.sh  (size=1671 bytes, exec)
 
 ```bash
 # scripts/quick_check.sh
@@ -8617,8 +8544,7 @@ echo "[QC] OK — everything looks good ✅"
 
 ```
 
-# path-ul fisierului: scripts/refresh_mviews.sh
-
+# path-ul fisierului: scripts/refresh_mviews.sh  (size=2197 bytes, exec)
 
 ```bash
 # scripts/refresh_mviews.sh
@@ -8713,8 +8639,7 @@ echo "[refresh_mviews] done"
 
 ```
 
-# path-ul fisierului: scripts/repo-tree.sh
-
+# path-ul fisierului: scripts/repo-tree.sh  (size=2751 bytes, exec)
 
 ```bash
 # scripts/repo-tree.sh
@@ -8808,8 +8733,7 @@ PY
 
 ```
 
-# path-ul fisierului: scripts/seed_demo_offer.sh
-
+# path-ul fisierului: scripts/seed_demo_offer.sh  (size=6800 bytes, exec)
 
 ```bash
 # scripts/seed_demo_offer.sh
@@ -8971,8 +8895,7 @@ echo "[$(date '+%F %T %Z')] Seed done."
 
 ```
 
-# path-ul fisierului: scripts/smoke.sh
-
+# path-ul fisierului: scripts/smoke.sh  (size=4036 bytes, exec)
 
 ```bash
 # scripts/smoke.sh
@@ -9114,8 +9037,7 @@ log "Done."
 
 ```
 
-# path-ul fisierului: scripts/smoke.sql
-
+# path-ul fisierului: scripts/smoke.sql  (size=12452 bytes)
 
 ```sql
 -- scripts/smoke.sql
@@ -9389,8 +9311,7 @@ SELECT
 
 ```
 
-# path-ul fisierului: services/worker_dummy.py
-
+# path-ul fisierului: services/worker_dummy.py  (size=214 bytes)
 
 ```python
 # app/services/worker_dummy.py
@@ -9406,8 +9327,7 @@ if __name__ == "__main__":
 
 ```
 
-# path-ul fisierului: smoke_obs.sh
-
+# path-ul fisierului: smoke_obs.sh  (size=2071 bytes, exec)
 
 ```bash
 #!/usr/bin/env bash
@@ -9464,8 +9384,7 @@ echo "All checks passed ✓"
 
 ```
 
-# path-ul fisierului: tests/test_api.py
-
+# path-ul fisierului: tests/test_api.py  (size=5323 bytes)
 
 ```python
 # tests/test_api.py
@@ -9631,8 +9550,7 @@ def test_categories_crud_and_attach_flow(client: httpx.Client):
 
 ```
 
-# path-ul fisierului: tests/test_categories_attach_detach.py
-
+# path-ul fisierului: tests/test_categories_attach_detach.py  (size=5225 bytes)
 
 ```python
 # tests/test_categories_attach_detach.py
@@ -9781,8 +9699,7 @@ def test_attach_detach_idempotent(client: httpx.Client):
 
 ```
 
-# path-ul fisierului: tests/test_category_m2m.py
-
+# path-ul fisierului: tests/test_category_m2m.py  (size=5906 bytes)
 
 ```python
 # tests/test_category_m2m.py
@@ -9951,8 +9868,7 @@ def test_m2m_attach_two_categories_and_idempotent(client: httpx.Client):
 
 ```
 
-# path-ul fisierului: tests/test_category_unique.py
-
+# path-ul fisierului: tests/test_category_unique.py  (size=4751 bytes)
 
 ```python
 # tests/test_category_unique.py
@@ -10096,8 +10012,7 @@ def test_category_name_unique_case_insensitive(client: httpx.Client):
 
 ```
 
-# path-ul fisierului: tests/test_emag_offers_read.py
-
+# path-ul fisierului: tests/test_emag_offers_read.py  (size=1194 bytes)
 
 ```python
 # tests/test_emag_offers_read.py
@@ -10135,8 +10050,7 @@ def test_openapi_has_params():
 
 ```
 
-# path-ul fisierului: tests/test_health.py
-
+# path-ul fisierului: tests/test_health.py  (size=4554 bytes)
 
 ```python
 # tests/test_health.py
@@ -10267,8 +10181,7 @@ def test_migrations_endpoint(client: httpx.Client):
 
 ```
 
-# path-ul fisierului: verify_offers_read.sh
-
+# path-ul fisierului: verify_offers_read.sh  (size=5594 bytes, exec)
 
 ```bash
 #!/usr/bin/env bash

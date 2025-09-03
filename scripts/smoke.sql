@@ -40,23 +40,56 @@ SELECT to_regclass('app.alembic_version')    IS NOT NULL AS app_version_table_pr
 SELECT current_database() AS db, current_schema;
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- 1) Date de probă idempotente (fără ON CONFLICT)
+-- 1) Seed idempotent – întâi inserările CU ID fix (nu folosesc secvența)
+--    Apoi REGLĂM SECVENȚELE, și abia după aceea inserările fără ID.
+--    (evită coliziuni cu PK atunci când există seed-uri/manual inserts)
 -- ─────────────────────────────────────────────────────────────────────────────
 
+-- categorie fixă (ID stabil)
 INSERT INTO app.categories (id, name, description)
 SELECT 9001, 'Teste Electronica', 'Smoke category'
 WHERE NOT EXISTS (SELECT 1 FROM app.categories WHERE id = 9001);
 
+-- produs cu ID fix (nu folosește secvența)
+INSERT INTO app.products (id, name, description, price, sku)
+SELECT 9101, 'Amplificator audio TPA3116', '2x50W', 129.90, 'SKU-SMOKE-TPA3116'
+WHERE NOT EXISTS (SELECT 1 FROM app.products WHERE id = 9101);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 2) Ajustează secvențele ACUM (după inserările cu ID fix)
+-- ─────────────────────────────────────────────────────────────────────────────
+DO $$
+DECLARE
+  seq text;
+  max_id bigint;
+BEGIN
+  -- products.id
+  SELECT pg_get_serial_sequence('app.products','id') INTO seq;
+  IF seq IS NOT NULL THEN
+    SELECT COALESCE(MAX(id), 0) INTO max_id FROM app.products;
+    EXECUTE format('SELECT setval(%L, %s, true);', seq, max_id);
+  END IF;
+
+  -- categories.id
+  SELECT pg_get_serial_sequence('app.categories','id') INTO seq;
+  IF seq IS NOT NULL THEN
+    SELECT COALESCE(MAX(id), 0) INTO max_id FROM app.categories;
+    EXECUTE format('SELECT setval(%L, %s, true);', seq, max_id);
+  END IF;
+END$$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 3) Inserări FĂRĂ ID (bazate pe secvență) – după reglarea secvențelor
+-- ─────────────────────────────────────────────────────────────────────────────
+
+-- categorie "Arduino" (case-insensitive, fără ID fix)
 INSERT INTO app.categories (name, description)
 SELECT 'Arduino', 'MCU boards'
 WHERE NOT EXISTS (
   SELECT 1 FROM app.categories WHERE lower(name) = lower('Arduino')
 );
 
-INSERT INTO app.products (id, name, description, price, sku)
-SELECT 9101, 'Amplificator audio TPA3116', '2x50W', 129.90, 'SKU-SMOKE-TPA3116'
-WHERE NOT EXISTS (SELECT 1 FROM app.products WHERE id = 9101);
-
+-- produse fără ID explicit (bazate pe secvență)
 INSERT INTO app.products (name, description, price, sku)
 SELECT 'Senzor DS18B20', 'temperatura', 19.90, 'SKU-SMOKE-DS18B20'
 WHERE NOT EXISTS (SELECT 1 FROM app.products WHERE sku = 'SKU-SMOKE-DS18B20');
@@ -65,6 +98,7 @@ INSERT INTO app.products (name, description, price, sku)
 SELECT 'Arduino UNO R3 compatibil', 'placa MCU compatibila', 89.90, 'SKU-SMOKE-ARDUINO'
 WHERE NOT EXISTS (SELECT 1 FROM app.products WHERE sku = 'SKU-SMOKE-ARDUINO');
 
+-- atașări M2M
 INSERT INTO app.product_categories (product_id, category_id)
 SELECT p.id, 9001
 FROM app.products p
@@ -90,28 +124,7 @@ ANALYZE app.categories;
 ANALYZE app.product_categories;
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- 2) Ajustează secvențele (dacă ID-urile au fost inserate manual)
--- ─────────────────────────────────────────────────────────────────────────────
-DO $$
-DECLARE
-  seq text;
-  max_id bigint;
-BEGIN
-  SELECT pg_get_serial_sequence('app.products','id') INTO seq;
-  IF seq IS NOT NULL THEN
-    SELECT COALESCE(MAX(id), 0) INTO max_id FROM app.products;
-    EXECUTE format('SELECT setval(%L, %s, true);', seq, max_id);
-  END IF;
-
-  SELECT pg_get_serial_sequence('app.categories','id') INTO seq;
-  IF seq IS NOT NULL THEN
-    SELECT COALESCE(MAX(id), 0) INTO max_id FROM app.categories;
-    EXECUTE format('SELECT setval(%L, %s, true);', seq, max_id);
-  END IF;
-END$$;
-
--- ─────────────────────────────────────────────────────────────────────────────
--- 3) Verificări audit & trigger – existență coloane și trigger
+-- 4) Verificări audit & trigger – existență coloane și trigger
 -- ─────────────────────────────────────────────────────────────────────────────
 SELECT table_name, column_name, data_type
 FROM information_schema.columns
@@ -147,7 +160,7 @@ SELECT 'product_categories',
 FROM app.product_categories;
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- 4) Indexuri relevante (inclusiv trigram)
+-- 5) Indexuri relevante (inclusiv trigram)
 -- ─────────────────────────────────────────────────────────────────────────────
 SELECT indexname, indexdef
 FROM pg_indexes
@@ -157,7 +170,7 @@ WHERE schemaname='app' AND tablename='products'
 ORDER BY indexname;
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- 5) EXPLAIN ANALYZE – demonstrează folosirea indexurilor trigram
+-- 6) EXPLAIN ANALYZE – demonstrează folosirea indexurilor trigram
 -- ─────────────────────────────────────────────────────────────────────────────
 
 -- a) name CONTAINS 'arduino' (trigram)
@@ -180,7 +193,7 @@ BEGIN;
 ROLLBACK;
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- 5.1) STRICT mode: aserțiuni pe planuri (opțional)
+-- 6.1) STRICT mode: aserțiuni pe planuri și volum minim de date (opțional)
 -- ─────────────────────────────────────────────────────────────────────────────
 \if :{?STRICT}
 DO $$
@@ -198,7 +211,7 @@ BEGIN
     RAISE EXCEPTION 'Expected ix_products_name_trgm in plan, got: %', plan::text;
   END IF;
 
-  -- verifică filtrul pe SKU (prezență index trigram generic în plan)
+  -- verifică filtrul pe SKU (prezență index trigram sau bitmap index scan)
   EXECUTE $q$
     EXPLAIN (ANALYZE, FORMAT JSON)
     SELECT id, sku FROM app.products WHERE sku IS NOT NULL AND lower(sku) LIKE 'sku-smoke-a%'
@@ -226,7 +239,7 @@ END$$;
 \endif
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- 6) Agregări/rapoarte rapide
+-- 7) Agregări/rapoarte rapide
 -- ─────────────────────────────────────────────────────────────────────────────
 SELECT COUNT(*) AS products_total FROM app.products;
 SELECT COUNT(*) AS categories_total FROM app.categories;
@@ -243,7 +256,7 @@ ORDER BY id DESC
 LIMIT 5;
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- 7) Observabilitate: există pg_stat_statements (în app sau public)?
+-- 8) Observabilitate: există pg_stat_statements (în app sau public)?
 -- ─────────────────────────────────────────────────────────────────────────────
 SELECT to_regclass('pg_stat_statements') IS NOT NULL AS pg_stat_statements_available;
 
@@ -258,7 +271,7 @@ EXCEPTION WHEN undefined_table THEN
 END$$;
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- 8) Validări finale „OK flags”
+-- 9) Validări finale „OK flags”
 -- ─────────────────────────────────────────────────────────────────────────────
 SELECT
   (SELECT to_regclass('app.alembic_version') IS NOT NULL)  AS ok_alembic_in_app,
