@@ -21,8 +21,8 @@ if [ -z "${PGPASSWORD:-}" ]; then
 fi
 
 # Unele medii pot seta PGOPTIONS problematic (ex: "-csearch_path=...").
-# Ca să evităm eroarea "invalid command-line argument for server process: -c",
-# resetăm explicit PGOPTIONS la nimic pentru acest script.
+# Pentru a evita eroarea "invalid command-line argument for server process: -c",
+# resetăm explicit pentru acest script.
 unset PGOPTIONS || true
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -52,35 +52,24 @@ require_cmd() {
 # Uneltele minime
 require_cmd curl psql
 
-# Diagnostic automat la exit pe eroare
-on_err() {
-  local ec=$?
-  [ $ec -eq 0 ] && return 0
-  log "Last status & logs (tail) ↓"
-  if have_cmd docker; then
-    if docker compose ps >/dev/null 2>&1; then
-      docker compose ps || true
-      docker compose logs --tail=120 || true
-    elif have_cmd docker-compose; then
-      docker-compose ps || true
-      docker-compose logs --tail=120 || true
-    fi
-  fi
-  exit $ec
-}
-trap on_err EXIT
+# ─────────────────────────────────────────────────────────────────────────────
+# STRICT flag pentru psql
+# ─────────────────────────────────────────────────────────────────────────────
+: "${SMOKE_STRICT:=1}"   # 1 = ON (default), 0 = OFF
+PSQL_STRICT=()
+if [ "${SMOKE_STRICT}" = "1" ]; then
+  PSQL_STRICT=(-v STRICT=1)
+fi
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Determine BASE_URL (auto-detect host port if not provided)
+# Detectează BASE_URL (docker compose port, apoi fallback)
 # ─────────────────────────────────────────────────────────────────────────────
 detect_base_url() {
-  # 1) Dacă e deja setat din env, îl păstrăm
   if [ -n "${BASE_URL:-}" ]; then
     echo "$BASE_URL"
     return 0
   fi
 
-  # 2) Încearcă docker compose port (service 'app', container port 8001)
   if have_cmd docker; then
     local mapped=""
     if docker compose version >/dev/null 2>&1; then
@@ -89,14 +78,12 @@ detect_base_url() {
       mapped="$(docker-compose port app 8001 2>/dev/null | tail -n1 || true)"
     fi
     if [ -n "$mapped" ]; then
-      # formate tipice: "0.0.0.0:8010", "[::]:8010" sau "127.0.0.1:8010"
       local host_port="${mapped##*:}"
       echo "http://127.0.0.1:${host_port}"
       return 0
     fi
   fi
 
-  # 3) Fallback la APP_PORT (sau 8001)
   echo "http://127.0.0.1:${APP_PORT}"
 }
 
@@ -120,7 +107,6 @@ wait_for_api() {
 }
 
 json_get() {
-  # Usage: json_get "<url>" "<jq expr>"
   local url="$1"; shift
   local jqexpr="${1:-.}"
   if have_cmd jq; then
@@ -150,15 +136,8 @@ diagnose_if_down() {
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 1) Rulează SQL smoke (idempotent)
-#    -X = nu citi ~/.psqlrc (pentru a evita setări locale neprevăzute)
-#    -w = nu cere parolă (fail fast dacă lipsește PGPASSWORD)
-#    STRICT: dacă SMOKE_STRICT=1, trimitem variabila către psql/sql
 # ─────────────────────────────────────────────────────────────────────────────
 log "Running SQL smoke..."
-PSQL_STRICT=()
-if [ "${SMOKE_STRICT:-0}" = "1" ]; then
-  PSQL_STRICT+=( -v STRICT=1 )
-fi
 
 # Conexiune libpq clară, fără să scurgem parola în CLI
 psql -X -w \

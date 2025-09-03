@@ -40,8 +40,8 @@ SELECT to_regclass('app.alembic_version')    IS NOT NULL AS app_version_table_pr
 SELECT current_database() AS db, current_schema;
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- 1) Seed idempotent – întâi inserările CU ID fix (nu folosesc secvența),
---    apoi reglăm secvențele, apoi inserările fără ID.
+-- 1) Seed idempotent
+--    Inserări cu ID fix (fără secvență), apoi reglăm secvențele, apoi restul.
 -- ─────────────────────────────────────────────────────────────────────────────
 
 -- categorie fixă (ID stabil)
@@ -78,14 +78,11 @@ BEGIN
 END$$;
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- 3) Inserări idempotente fără ID + legături categorie-produs
+-- 3) Restul seed-ului idempotent (fără ID fix)
 -- ─────────────────────────────────────────────────────────────────────────────
-
 INSERT INTO app.categories (name, description)
 SELECT 'Arduino', 'MCU boards'
-WHERE NOT EXISTS (
-  SELECT 1 FROM app.categories WHERE lower(name) = lower('Arduino')
-);
+WHERE NOT EXISTS (SELECT 1 FROM app.categories WHERE lower(name) = 'arduino');
 
 INSERT INTO app.products (name, description, price, sku)
 SELECT 'Senzor DS18B20', 'temperatura', 19.90, 'SKU-SMOKE-DS18B20'
@@ -94,6 +91,15 @@ WHERE NOT EXISTS (SELECT 1 FROM app.products WHERE sku = 'SKU-SMOKE-DS18B20');
 INSERT INTO app.products (name, description, price, sku)
 SELECT 'Arduino UNO R3 compatibil', 'placa MCU compatibila', 89.90, 'SKU-SMOKE-ARDUINO'
 WHERE NOT EXISTS (SELECT 1 FROM app.products WHERE sku = 'SKU-SMOKE-ARDUINO');
+
+-- Ca să garantăm pragul >=5 products și planuri stabile:
+INSERT INTO app.products (name, description, price, sku)
+SELECT 'Breadboard 830', 'protoboard', 24.50, 'SKU-SMOKE-BREAD'
+WHERE NOT EXISTS (SELECT 1 FROM app.products WHERE sku = 'SKU-SMOKE-BREAD');
+
+INSERT INTO app.products (name, description, price, sku)
+SELECT 'Cablu jumper set', 'male-male/male-female', 14.90, 'SKU-SMOKE-JUMPER'
+WHERE NOT EXISTS (SELECT 1 FROM app.products WHERE sku = 'SKU-SMOKE-JUMPER');
 
 INSERT INTO app.product_categories (product_id, category_id)
 SELECT p.id, 9001
@@ -197,35 +203,35 @@ DECLARE
   plan json;
   ok   boolean;
 BEGIN
-  -- Forțează preferința de index în tranzacția curentă a DO-ului
-  PERFORM set_config('enable_seqscan',  'off',  true);
-  PERFORM set_config('enable_indexscan','on',   true);
+  -- În DO() folosim set_config pentru a opri seqscan în sesiunea blocului
+  PERFORM set_config('enable_seqscan',   'off', true);
+  PERFORM set_config('enable_indexscan', 'on',  true);
   PERFORM set_config('enable_bitmapscan','on',  true);
 
-  -- verifică folosirea indexului trigram pe name (sau, cel puțin, un Bitmap Index Scan)
+  -- (name) Accept: folosire explicită a ix_products_name_trgm SAU Bitmap Index Scan
   EXECUTE $q$
     EXPLAIN (ANALYZE, FORMAT JSON)
     SELECT id, name FROM app.products WHERE lower(name) LIKE '%arduino%'
   $q$ INTO plan;
-  ok := plan::text ILIKE '%ix_products_name_trgm%' OR plan::text ILIKE '%Bitmap%Index%Scan%';
+  ok := plan::text ILIKE '%ix_products_name_trgm%'
+        OR plan::text ILIKE '%Bitmap%Index%Scan%';
   IF NOT ok THEN
     RAISE EXCEPTION 'Expected trigram/bitmap on name plan, got: %', plan::text;
   END IF;
 
-  -- verifică filtrul pe SKU: acceptă trigram, bitmap sau btree funcțional
+  -- (sku) Accept: trigram pe SKU SAU bitmap index scan SAU btree funcțional pe lower(sku)
   EXECUTE $q$
     EXPLAIN (ANALYZE, FORMAT JSON)
     SELECT id, sku FROM app.products WHERE sku IS NOT NULL AND lower(sku) LIKE 'sku-smoke-a%'
   $q$ INTO plan;
   ok := plan::text ILIKE '%ix_products_sku_trgm%'
         OR plan::text ILIKE '%Bitmap%Index%Scan%'
-        OR plan::text ILIKE '%Index Scan using ix_products_sku%';
+        OR plan::text ILIKE '%"Index Name"%ix_products_sku%';  -- JSON: "Index Name": "ix_products_sku"
   IF NOT ok THEN
     RAISE EXCEPTION 'Expected trigram/bitmap/btree on SKU plan, got: %', plan::text;
   END IF;
 
   -- praguri minime de date
-  PERFORM 1;
   IF (SELECT COUNT(*) FROM app.products)  < 5 THEN
     RAISE EXCEPTION 'Expected >=5 products';
   END IF;
