@@ -1,3 +1,4 @@
+# .github/workflows/quick-check.yml
 name: Quick Check
 
 on:
@@ -18,12 +19,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # dacă folosești un .env dedicat CI-ului
+      # opțional: dacă ai un .env dedicat CI-ului, îl copiem peste .env
       - name: Prepare .env for CI
         run: |
           if [ -f .env.ci ]; then cp .env.ci .env; fi
 
-      # Buildx + cache GitHub Actions (înlocuiește "compose build")
+      # Buildx cu cache GitHub Actions (construim doar o dată imaginea runtime)
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -33,23 +34,33 @@ jobs:
           context: .
           file: ./Dockerfile
           target: runtime
-          tags: emagdb-app:latest          # trebuie să corespundă cu 'image:' din docker-compose.yml
-          load: true                       # încarcă imaginea în daemon-ul local, pentru compose
+          tags: emagdb-app:latest          # trebuie să corespundă cu `image:` din docker-compose.yml
+          load: true                       # încarcă imaginea în daemon pentru `docker compose up`
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
             APP_UID=10001
             APP_GID=10001
 
-      # pornește serviciile fără rebuild (folosește imaginea deja construită)
+      # pornim serviciile folosind imaginea deja construită (fără rebuild)
       - name: Start compose (no build)
         run: |
           docker compose up -d --no-build --force-recreate
           docker compose ps
 
-      - name: Quick check (make ci)
+      # Rulăm quick check-ul complet (build/migrate/seed/health/smoke).
+      # Pe `main` activăm STRICT pentru smoke.sql (scriptul îl citește din env).
+      - name: Quick check (STRICT on main)
+        if: github.ref_name == 'main'
+        run: make ci
+        env:
+          STRICT: "1"
+
+      - name: Quick check
+        if: github.ref_name != 'main'
         run: make ci
 
+      # La eșec, scoatem rapid logurile
       - name: Dump logs on failure
         if: failure()
         run: |
@@ -57,6 +68,14 @@ jobs:
           docker compose logs --no-color > compose.log || true
           echo "---- last 200 lines of logs ----"
           tail -n 200 compose.log || true
+
+      # (opțional) atașăm logurile ca artifact pentru inspecție ulterioară
+      - name: Upload logs artifact
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compose-logs
+          path: compose.log
 
       - name: Teardown
         if: always()
