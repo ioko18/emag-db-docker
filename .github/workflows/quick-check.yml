@@ -19,8 +19,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Asigură că .env există pentru docker compose (env_file: .env),
-      # fără here-doc (evităm problemele cu EOF/indentare).
+      # Asigură că .env există pentru docker compose (env_file: .env)
       - name: Ensure .env for Compose
         shell: bash
         run: |
@@ -46,7 +45,7 @@ jobs:
           echo "[CI] .env ready:"
           sed -E 's/(POSTGRES_PASSWORD=).*/\1*** (redacted)/' .env || true
 
-      # Buildx + cache GitHub Actions (înlocuiește "compose build")
+      # Buildx + cache (înlocuiește compose build)
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -56,15 +55,15 @@ jobs:
           context: .
           file: ./Dockerfile
           target: runtime
-          tags: emagdb-app:latest          # trebuie să corespundă cu 'image:' din docker-compose.yml
-          load: true                       # încarcă imaginea în daemon-ul local, pentru compose
+          tags: emagdb-app:latest
+          load: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
             APP_UID=10001
             APP_GID=10001
 
-      # pornește serviciile fără rebuild (folosește imaginea deja construită)
+      # Pornește serviciile fără rebuild (folosește imaginea deja construită)
       - name: Start compose (no build)
         shell: bash
         run: |
@@ -72,16 +71,35 @@ jobs:
           docker compose up -d --no-build --force-recreate
           docker compose ps
 
-      # Mod STRICT doar pe main (ex: variabilă pentru scripturile tale)
+      # STRICT doar pe main; exportăm PGPASSWORD + restul PG* din .env ca psql să nu ceară parola
       - name: Quick check (STRICT on main)
         if: github.ref == 'refs/heads/main'
+        shell: bash
         run: |
+          set -euo pipefail
+          # exportă toate variabilele din .env (sigur pentru valorile noastre simple KEY=VALUE)
+          set -a; source .env; set +a
+          # hint-uri pentru psql, dacă scripturile folosesc conexiune pe host
+          export PGPASSWORD="${POSTGRES_PASSWORD:-}"
+          export PGHOST="${PGHOST:-127.0.0.1}"
+          export PGPORT="${PGPORT:-${DB_PORT:-5434}}"
+          export PGUSER="${PGUSER:-${POSTGRES_USER:-appuser}}"
+          export PGDATABASE="${PGDATABASE:-${POSTGRES_DB:-appdb}}"
           export SMOKE_STRICT=1
           make ci
 
       - name: Quick check
         if: github.ref != 'refs/heads/main'
-        run: make ci
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a; source .env; set +a
+          export PGPASSWORD="${POSTGRES_PASSWORD:-}"
+          export PGHOST="${PGHOST:-127.0.0.1}"
+          export PGPORT="${PGPORT:-${DB_PORT:-5434}}"
+          export PGUSER="${PGUSER:-${POSTGRES_USER:-appuser}}"
+          export PGDATABASE="${PGDATABASE:-${POSTGRES_DB:-appdb}}"
+          make ci
 
       - name: Dump logs on failure
         if: failure()
@@ -103,6 +121,5 @@ jobs:
         if: always()
         shell: bash
         run: |
-          # dacă .env lipsește (eșec timpuriu), creează unul gol ca să nu crape compose
-          [[ -f .env ]] || : > .env
+          [[ -f .env ]] || : > .env   # dacă a eșuat devreme și .env nu există
           docker compose down -v --remove-orphans || true
